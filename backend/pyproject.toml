@@ -1,0 +1,19 @@
+[project]
+name = "locavox"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Jean-Baptiste Poullet",email = "jeanbaptistepoullet@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.68.0",
+    "uvicorn==0.15.0",
+    "pydantic==1.8.2"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
