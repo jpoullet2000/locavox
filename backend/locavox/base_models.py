@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Dict, Optional
-from pydantic import BaseModel
+from typing import Dict, Any
+from pydantic import BaseModel, Field
 
 
 class Message(BaseModel):
@@ -8,4 +8,4 @@ class Message(BaseModel):
     content: str
     userId: str
     timestamp: datetime
-    metadata: Optional[Dict] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)

@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -5,6 +6,8 @@ from typing import Optional
 import uuid
 from datetime import datetime
 import logging
+from dotenv import load_dotenv
+from . import config  # Import config first
 
 from .models import (
     Message,
@@ -17,6 +20,9 @@ from .models import (
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+dot_env_file = os.getenv("LOCAVOX_DOT_ENV_FILE", ".env")
+load_dotenv(dotenv_path=dot_env_file)
+
 app = FastAPI()
 
 # Configure CORS
@@ -28,8 +34,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize topics
-topics = {"marketplace": CommunityTaskMarketplace(), "chat": NeighborhoodHubChat()}
+# Initialize topics after environment is set up
+topics = None
+
+
+@app.on_event("startup")
+async def startup_event():
+    global topics
+    topics = {"marketplace": CommunityTaskMarketplace(), "chat": NeighborhoodHubChat()}
 
 
 class QueryRequest(BaseModel):
@@ -85,3 +97,12 @@ async def add_message(topic_name: str, request: MessageRequest):
 @app.get("/topics")
 async def list_topics():
     return {"topics": list(topics.keys())}
+
+
+# Add a debug endpoint to list messages in a topic
+@app.get("/topics/{topic_name}/messages")
+async def list_messages(topic_name: str):
+    if topic_name not in topics:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    messages = await topics[topic_name].get_messages(10)
+    return {"messages": [msg.model_dump() for msg in messages]}

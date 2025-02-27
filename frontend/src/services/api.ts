@@ -26,3 +26,19 @@ export async function sendMessage(text: string): Promise<string> {
         throw error;
     }
 }
+
+export async function getMessages(topic: string = 'chat', limit: number = 100): Promise<any[]> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/topics/${topic}/messages?limit=${limit}`);
+
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+
+        const data = await response.json();
+        return data.messages;
+    } catch (error) {
+        console.error('Error fetching messages:', error);
+        throw error;
+    }
+}
