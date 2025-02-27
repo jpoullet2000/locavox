@@ -1,0 +1,52 @@
+.text-input-form {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.input-label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.text-area {
+    width: 100%;
+    padding: 12px;
+    margin-bottom: 15px;
+    border: 2px solid #ccc;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.submit-button {
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.submit-button:hover {
+    background-color: #0056b3;
+}
+
+.text-input-container {
+    width: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.response-container {
+    margin-top: 20px;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+}
+
+.submit-button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}

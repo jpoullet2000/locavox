@@ -1,18 +1,28 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import uuid
 from datetime import datetime
+import logging
 
-from models import Message, CommunityTaskMarketplace, NeighborhoodHubChat
+from .models import (
+    Message,
+    CommunityTaskMarketplace,
+    NeighborhoodHubChat,
+    Topic,  # Add Topic to imports
+)  # Use relative import
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # Temporarily allow all origins for testing
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,11 +63,12 @@ async def query_topics(request: QueryRequest):
 
 @app.post("/topics/{topic_name}/messages")
 async def add_message(topic_name: str, request: MessageRequest):
-    topic = next(
-        (t for t in topics.values() if t.name.lower() == topic_name.lower()), None
-    )
-    if not topic:
-        raise HTTPException(status_code=404, detail="Topic not found")
+    logger.debug(f"Received message request for topic: {topic_name}")
+
+    # Create topic if it doesn't exist
+    if topic_name not in topics:
+        topics[topic_name] = Topic(topic_name)
+        logger.debug(f"Created new topic: {topic_name}")
 
     message = Message(
         id=str(uuid.uuid4()),
@@ -66,5 +77,11 @@ async def add_message(topic_name: str, request: MessageRequest):
         timestamp=datetime.now(),
         metadata=request.metadata,
     )
-    topic.add_message(message)
+    topics[topic_name].add_message(message)
     return message
+
+
+# Add a debug endpoint to list available topics
+@app.get("/topics")
+async def list_topics():
+    return {"topics": list(topics.keys())}
