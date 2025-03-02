@@ -1,3 +1,6 @@
+import os
+import json  # Add import for JSON handling
+import asyncio  # Add import for asyncio
 from typing import List
 from datetime import datetime
 import uuid
@@ -5,6 +8,9 @@ import uuid
 from .base_models import Message
 from .storage import TopicStorage
 from .logger import setup_logger
+
+# Import the query builder properly
+from locavox.lance_query_builder import LanceEmptyQueryBuilder, LanceComplexQueryBuilder
 
 # Set up logger for this module
 logger = setup_logger(__name__)
@@ -17,18 +23,50 @@ class BaseTopic:
         self.description = description if description else f"Dynamic topic: {name}"
         self.messages: List[Message] = []
         self.storage = TopicStorage(name)
-        # Initialize synchronously in constructor for immediate use
+        self._init_complete = False
+
+        # Initialize storage based on context
         try:
-            self.storage.initialize_sync()
+            # Check if we're in an async context
+            try:
+                loop = asyncio.get_event_loop()
+                is_running = loop.is_running()
+            except RuntimeError:
+                is_running = False
+
+            if is_running:
+                # In async context, schedule async initialization
+                logger.debug(
+                    f"In async context - scheduling async initialization for topic {name}"
+                )
+                # Schedule but don't wait
+                asyncio.create_task(self._async_init())
+            else:
+                # In sync context, initialize synchronously
+                logger.debug(
+                    f"In sync context - initializing synchronously for topic {name}"
+                )
+                self.storage.initialize_sync()
+                self._init_complete = True
         except Exception as e:
             logger.warning(
-                f"Failed to initialize storage synchronously: {e}, will try async later"
+                f"Failed to initialize storage: {e}, will initialize on first use"
             )
+
+    async def _async_init(self):
+        """Helper method for async initialization"""
+        try:
+            await self.initialize()
+            self._init_complete = True
+            logger.debug(f"Async initialization completed for topic {self.name}")
+        except Exception as e:
+            logger.error(f"Async initialization failed for topic {self.name}: {e}")
 
     async def initialize(self):
         """Initialize the topic storage"""
         try:
             await self.storage.initialize()
+            self._init_complete = True
             return True
         except Exception as e:
             logger.error(f"Failed to initialize storage: {e}")
@@ -37,26 +75,39 @@ class BaseTopic:
     def initialize_sync(self):
         """Synchronous initialization"""
         self.storage.initialize_sync()
+        self._init_complete = True
         return self
 
     async def add_message(self, message: Message):
         """Add a message to this topic"""
-        if not self.storage.table:
-            await self.storage.initialize()
+        # Ensure initialization is complete
+        if not self._init_complete or not self.storage.table:
+            logger.debug(
+                f"Initializing storage for topic {self.name} before adding message"
+            )
+            await self.initialize()
         await self.storage.add_message(message)
         self.messages.append(message)
         return message
 
     async def search_messages(self, query: str, limit: int = 10) -> List[Message]:
         """Search messages in this topic by content"""
-        if not self.storage.table:
-            await self.storage.initialize()
+        # Ensure initialization is complete
+        if not self._init_complete or not self.storage.table:
+            logger.debug(
+                f"Initializing storage for topic {self.name} before searching messages"
+            )
+            await self.initialize()
         return await self.storage.search_messages(query, limit)
 
     async def get_messages(self, limit: int = 100) -> List[Message]:
         """Get all messages from this topic, newest first"""
-        if not self.storage.table:
-            await self.storage.initialize()
+        # Ensure initialization is complete
+        if not self._init_complete or not self.storage.table:
+            logger.debug(
+                f"Initializing storage for topic {self.name} before getting messages"
+            )
+            await self.initialize()
         return await self.storage.get_messages(limit)
 
     async def _get_table(self):
@@ -78,91 +129,102 @@ class BaseTopic:
         self, user_id: str, limit: int = 100
     ) -> List[Message]:
         """
-        Efficiently retrieve messages from a specific user using LanceDB's vector filtering
-
-        Args:
-            user_id: The user ID to filter by
-            limit: Maximum number of messages to retrieve
-
-        Returns:
-            List of Message objects from the specified user
+        Get messages from a specific user with optimized query
         """
         try:
-            # Make sure we're initialized
-            await self._ensure_initialized()
+            # Ensure initialization is complete
+            if not self._init_complete or not self.storage.table:
+                logger.debug(
+                    f"Initializing storage for topic {self.name} before querying messages by user"
+                )
+                await self.initialize()
 
-            # If still not initialized, try another approach
-            if not self.storage.table:
-                logger.warning(f"No table available for topic {self.name}")
-                return []
+                # Extra check after initialization
+                if not self.storage.table:
+                    logger.error("Failed to initialize table in storage")
+                    raise ValueError("Could not initialize table")
 
-            logger.debug(f"Querying messages for user {user_id} in topic {self.name}")
+            # Get the dataset path from storage
+            dataset_path = self.storage.dataset_path
+            logger.info(f"Using dataset path: {dataset_path}")
 
-            # First try direct query through storage
-            try:
-                messages = await self.storage.get_messages_by_user(user_id, limit)
-                if messages:
-                    logger.debug(f"Found {len(messages)} messages via storage query")
-                    return messages
-            except Exception as e:
-                logger.warning(f"Storage query failed: {e}, trying custom query")
+            # Check if the dataset path exists before proceeding
+            if not os.path.exists(dataset_path):
+                logger.warning(f"Dataset path does not exist: {dataset_path}")
 
-            # Try with Lance where clause
-            try:
-                # Use LanceDB's where clause for efficient filtering
-                # Fix: Use correct case and quoting for field name
-                logger.debug("Trying direct LanceDB where clause")
-                tbl = self.storage.table
-                query = tbl.search().where(f"\"userId\" = '{user_id}'").limit(limit)
-                query_result = await query.execute()
+                # Try looking for common variations of the path
+                parent_dir = os.path.dirname(dataset_path)
+                basename = os.path.basename(dataset_path)
 
-                # Convert results to Message objects
-                messages = []
-                for item in query_result:
-                    try:
-                        # Extract data from the LanceDB result
-                        data = item.to_dict()
+                # Look in parent directory for files with similar names
+                if os.path.exists(parent_dir):
+                    logger.debug(f"Parent directory exists: {parent_dir}")
+                    files = os.listdir(parent_dir)
+                    logger.debug(f"Files in parent directory: {files}")
 
-                        # Skip malformed entries
-                        if "userId" not in data or "content" not in data:
-                            continue
+                    # Check if there's a similar file we could use
+                    for file in files:
+                        if basename in file or self.storage.table_name in file:
+                            potential_path = os.path.join(parent_dir, file)
+                            logger.info(
+                                f"Found potential dataset file: {potential_path}"
+                            )
+                            dataset_path = potential_path
+                            break
 
-                        # Create Message object
-                        msg = Message(
-                            id=data.get("id", str(uuid.uuid4())),
-                            userId=data["userId"],
-                            content=data["content"],
-                            timestamp=datetime.fromisoformat(data["timestamp"])
-                            if "timestamp" in data
-                            else datetime.now(),
-                            metadata=data.get("metadata", {}),
-                        )
-                        messages.append(msg)
-                    except (KeyError, ValueError, TypeError) as e:
-                        logger.error(f"Error processing message data: {e}")
-                        # Skip malformed messages
+            # Log the actual db_path, which might be different from dataset_path
+            logger.debug(f"Storage db_path: {self.storage.db_path}")
 
-                logger.debug(f"Found {len(messages)} messages via direct where clause")
-                return messages
+            # Try using the Lance query builder with where condition
+            logger.info(f"Creating query builder for {dataset_path}")
+            query_builder = LanceEmptyQueryBuilder(dataset_path)
+            logger.debug(f"Querying for messages with userId={user_id}")
+            results = query_builder.where("userId", user_id).execute()
 
-            except Exception as e:
+            if not results:
                 logger.warning(
-                    f"Direct where query failed: {e}, trying final fallback method"
+                    f"No results returned from query builder for user {user_id}"
                 )
 
-                # Final fallback: get all messages and filter in memory
-                all_messages = await self.get_messages(1000)  # Get a large sample
-                user_messages = [msg for msg in all_messages if msg.userId == user_id][
-                    :limit
-                ]
-                logger.debug(f"Found {len(user_messages)} messages via full scan")
-                return user_messages
+            # Process and convert results to Message objects
+            messages = []
+            for result in results[:limit]:  # Apply limit after query for simplicity
+                try:
+                    # Handle the embedding vs vector field name difference
+                    if "vector" in result and "embedding" not in result:
+                        result["embedding"] = result.pop("vector")
+
+                    # Handle metadata parsing from JSON string if needed
+                    if "metadata" in result and isinstance(result["metadata"], str):
+                        try:
+                            result["metadata"] = json.loads(result["metadata"])
+                        except json.JSONDecodeError:
+                            result["metadata"] = {}
+
+                    messages.append(Message(**result))
+                except Exception as e:
+                    logger.error(f"Error converting result to Message: {e}")
+                    logger.debug(f"Problematic record: {result}")
+
+            logger.debug(
+                f"Found {len(messages)} messages for user {user_id} using query builder"
+            )
+            return messages
 
         except Exception as e:
-            logger.error(
-                f"Error retrieving messages by user {user_id} from {self.name}: {e}"
+            logger.warning(
+                f"Direct where query failed: {e}, trying final fallback method"
             )
-            return []
+            logger.debug(f"Error details: ", exc_info=True)
+
+            # Fallback to retrieving all messages and filtering
+            logger.info("Using fallback method: get all messages and filter")
+            all_messages = await self.get_messages(1000)  # Get a reasonable batch
+            user_messages = [msg for msg in all_messages if msg.userId == user_id]
+            logger.info(
+                f"Fallback method found {len(user_messages)} messages for user {user_id}"
+            )
+            return user_messages[:limit]  # Apply the limit
 
     async def _ensure_initialized(self):
         """Ensure the topic is initialized"""

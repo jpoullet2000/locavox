@@ -1,0 +1,12 @@
+{
+    "/api/*": "/$1",
+    "/auth/login": "/auth/login",
+    "/auth/register": "/auth/register",
+    "/auth/logout": "/auth/logout",
+    "/auth/me": "/auth/me",
+    "/users/:userId/messages": "/messages?userId=:userId",
+    "/login": "/auth/login",
+    "/register": "/auth/register",
+    "/logout": "/auth/logout",
+    "/me": "/auth/me"
+}

@@ -34,6 +34,10 @@ async def create_test_data():
         topics["performance_test"] = test_topic
         logger.info("Created performance_test topic")
 
+        # Ensure initialization is complete before proceeding
+        await test_topic.initialize()
+        logger.info("Initialized performance_test topic")
+
         # Verify the topic was added to topics dictionary
         if "performance_test" not in topics:
             logger.error("Failed to add performance_test to topics dictionary")

@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8080';
 
 export async function sendMessage(text: string): Promise<string> {
     try {

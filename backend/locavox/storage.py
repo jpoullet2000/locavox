@@ -136,25 +136,32 @@ class TopicStorage:
             raise
 
     def initialize_sync(self):
-        """Synchronous wrapper for initialize"""
+        """Synchronous wrapper for initialize that's safe in both async and sync contexts"""
         try:
-            # Create the event loop or use existing one
+            # Check if we're in an async context
             try:
-                loop = asyncio.get_running_loop()
+                loop = asyncio.get_event_loop()
+                is_running = loop.is_running()
             except RuntimeError:
+                # No event loop available, so we're not in an async context
+                is_running = False
                 loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-            # Run the async initialization function
-            if loop.is_running():
-                # We're in an async context, create a task
-                future = asyncio.ensure_future(self.initialize())
-                # We can't await, so we'll have to rely on the task completing later
-                # This is not ideal but sometimes necessary
+            if is_running:
+                # We're in an async context
+                logger.debug("initialize_sync called in async context")
+                # Create a task but don't wait for it - caller should use initialize() instead
+                # for proper async initialization
+                asyncio.create_task(self._mark_init_in_progress())
                 logger.warning(
-                    "initialize_sync called in async context - initialization may not be complete"
+                    "initialize_sync called in async context - initialization scheduled but not guaranteed to complete immediately"
                 )
             else:
-                # We can run the loop to completion
+                # We're in a sync context, we can run the loop to completion
+                logger.debug(
+                    "initialize_sync called in sync context, running event loop"
+                )
                 loop.run_until_complete(self.initialize())
 
             return self
@@ -162,6 +169,15 @@ class TopicStorage:
             logger.error(f"Error in initialize_sync: {e}")
             self._initialized = False
             raise
+
+    async def _mark_init_in_progress(self):
+        """Helper method to mark initialization in progress and avoid duplicate calls"""
+        if not hasattr(self, "_init_in_progress") or not self._init_in_progress:
+            self._init_in_progress = True
+            try:
+                await self.initialize()
+            finally:
+                self._init_in_progress = False
 
     async def _ensure_initialized(self):
         """Ensure the storage is initialized"""
@@ -455,3 +471,26 @@ class TopicStorage:
         except Exception as e:
             logger.warning(f"Error calculating text search score: {e}")
             return 0.0
+
+    @property
+    def dataset_path(self) -> str:
+        """Get the path to the Lance dataset used by this storage"""
+        # Make sure we have the correct path to the Lance dataset
+        table_path = os.path.join(self.db_path, self.table_name + ".lance")
+
+        # Verify the path exists and log details
+        if os.path.exists(table_path):
+            logger.debug(f"Verified Lance dataset exists at: {table_path}")
+            return table_path
+        else:
+            logger.warning(f"Lance dataset not found at: {table_path}")
+
+            # Check if parent path with table exists
+            if os.path.exists(os.path.join(self.db_path, self.table_name)):
+                logger.debug(
+                    f"Found dataset directory: {os.path.join(self.db_path, self.table_name)}"
+                )
+                return os.path.join(self.db_path, self.table_name)
+
+            # If not found, return the path we expect it to be - it might be created later
+            return table_path

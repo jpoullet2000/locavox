@@ -1,46 +1,98 @@
-# Getting Started with Create React App
+# LocaVox Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A community connection platform that brings neighbors together.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or newer)
+- npm or yarn
+
+### Installation
+
+1. Clone the repository
+2. Install dependencies:
+
+```bash
+cd frontend
+npm install
+```
+
+### Running the Development Server
+
+#### Option 1: Frontend Only (requires backend server)
+
+```bash
+npm run dev
+```
+
+#### Option 2: Frontend with Mock API Server
+
+```bash
+npm run dev-with-mock
+```
+
+This will start both the frontend development server and a mock API server.
+
+### Mock API Credentials
+
+For testing with the mock API, you can use these credentials:
+
+- Email: user@example.com
+- Password: password123
+
+Or register a new user through the registration form.
 
 ## Available Scripts
 
-In the project directory, you can run:
+- `npm run dev`: Start the development server
+- `npm run build`: Build for production
+- `npm run preview`: Preview production build
+- `npm run lint`: Run linting
+- `npm run mock-api`: Run just the mock API server
+- `npm run dev-with-mock`: Run both frontend and mock API server
 
-### `npm start`
+## Project Structure
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+- `/src`: Source files
+  - `/components`: Reusable React components
+  - `/contexts`: React context providers
+  - `/pages`: Page components
+  - `/api`: API client functions
+  - `/utils`: Utility functions
+  - `/hooks`: Custom React hooks
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+## Mock API
 
-### `npm test`
+The mock API server provides:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- Authentication (register, login, profile)
+- Topics listing
+- Messages (create, list, search)
 
-### `npm run build`
+API endpoints:
+- `POST /auth/register` - Register a new user
+- `POST /auth/login` - Login
+- `GET /auth/me` - Get current user profile
+- `POST /auth/logout` - Logout
+- `GET /topics` - Get all topics
+- `GET /topics/:name` - Get a specific topic
+- `GET /messages` - Get all messages
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Environment Variables
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Create a `.env.local` file for local development:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+```
+VITE_API_BASE_URL=http://localhost:8080
+```
 
 ## Learn More
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+For more information about the tools used in this project:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+- [React](https://reactjs.org/)
+- [Vite](https://vitejs.dev/)
+- [Chakra UI](https://chakra-ui.com/)
+- [React Router](https://reactrouter.com/)

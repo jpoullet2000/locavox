@@ -1,0 +1,44 @@
+{
+    "users": [
+        {
+            "id": "1",
+            "email": "user@example.com",
+            "password": "password123",
+            "displayName": "Test User",
+            "photoURL": "https://ui-avatars.com/api/?name=Test+User&background=random"
+        }
+    ],
+    "topics": [
+        {
+            "id": "1",
+            "name": "Neighborhood Updates",
+            "description": "General updates and information about our neighborhood"
+        },
+        {
+            "id": "2",
+            "name": "Community Events",
+            "description": "Upcoming events and gatherings in our community"
+        },
+        {
+            "id": "3",
+            "name": "Local Business",
+            "description": "Support and discuss local businesses in our area"
+        }
+    ],
+    "messages": [
+        {
+            "id": "1",
+            "userId": "1",
+            "topicId": "1",
+            "content": "There will be road maintenance on Oak Street this weekend.",
+            "timestamp": "2023-07-28T15:30:00Z"
+        },
+        {
+            "id": "2",
+            "userId": "1",
+            "topicId": "2",
+            "content": "Community picnic next Saturday at the park. Everyone is welcome!",
+            "timestamp": "2023-07-29T10:15:00Z"
+        }
+    ]
+}

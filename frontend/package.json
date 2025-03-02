@@ -1,28 +1,46 @@
 {
-  "name": "frontend",
+  "name": "locavox-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "start": "vite --host localhost",
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup": "npm install",
+    "mock-api": "bash ./start-mock-api-alt.sh",
+    "mock-api-8081": "PORT=8081 node mock-api/server.cjs",
+    "mock-api-8082": "PORT=8082 node mock-api/server.cjs",
+    "dev-with-mock": "concurrently \"npm run dev\" \"npm run mock-api\""
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@chakra-ui/icons": "^2.1.0",
+    "@chakra-ui/react": "^2.8.0",
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "axios": "^1.8.1",
+    "framer-motion": "^10.16.4",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.15.0"
   },
   "devDependencies": {
+    "@types/node": "^20.11.0",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vitejs/plugin-react": "^4.0.3",
+    "concurrently": "^8.2.2",
+    "eslint": "^8.45.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.3",
+    "json-server": "^0.17.4",
     "typescript": "^5.0.2",
     "vite": "^6.2.0"
   }
