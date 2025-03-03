@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { API_BASE_URL } from '../config';
+import { API_ENDPOINTS } from '../config';
+import { callApiWithFallback, getAuthHeaders } from './apiUtils';
 
 // Define types for message data
 interface MessagePayload {
@@ -22,34 +23,82 @@ interface UserMessagesResponse {
     total: number;
     messages: Array<{
         message: MessageResponse;
-        topic: string;
+        topic: string | { name: string; description: string };
     }>;
 }
 
-// Get topics available for posting
-export const getTopics = async (): Promise<string[]> => {
-    const response = await axios.get(`${API_BASE_URL}/topics`);
-    return response.data.map((topic: any) => topic.name);
-};
+/**
+ * Get all available topics
+ * @returns Array of topics
+ */
+export async function getTopics() {
+    return callApiWithFallback('/topics', 'get');
+}
 
-// Post a new message
+/**
+ * Post a new message to a topic
+ * @param payload Message data to post
+ * @returns The created message
+ */
 export const postMessage = async (payload: MessagePayload): Promise<MessageResponse> => {
-    const response = await axios.post(`${API_BASE_URL}/topics/${payload.topicName}/messages`, {
-        content: payload.content,
-        userId: payload.userId,
-        metadata: payload.metadata || {},
-    });
-    return response.data;
+    return callApiWithFallback(
+        `/topics/${payload.topicName}/messages`,
+        'post',
+        {
+            headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json'
+            }
+        },
+        {
+            content: payload.content,
+            userId: payload.userId,
+            metadata: payload.metadata || {}
+        }
+    );
 };
 
-// Get messages for a specific user
+/**
+ * Delete a message from a topic
+ * @param topicName The topic containing the message
+ * @param messageId The ID of the message to delete
+ */
+export const deleteMessage = async (topicName: string, messageId: string): Promise<void> => {
+    await callApiWithFallback(
+        `/topics/${topicName}/messages/${messageId}`,
+        'delete',
+        {
+            headers: getAuthHeaders()
+        }
+    );
+};
+
+/**
+ * Get all messages for a specific user
+ * @param userId The user ID to get messages for
+ * @returns Object containing user messages
+ */
 export const getUserMessages = async (userId: string): Promise<UserMessagesResponse> => {
-    const response = await axios.get(`${API_BASE_URL}/users/${userId}/messages`);
-    return response.data;
+    return callApiWithFallback(
+        `/users/${userId}/messages`,
+        'get',
+        {
+            headers: getAuthHeaders()
+        }
+    );
 };
 
-// Get messages from a specific topic
+/**
+ * Get all messages in a specific topic
+ * @param topicName The topic to get messages from
+ * @returns Array of messages
+ */
 export const getTopicMessages = async (topicName: string): Promise<MessageResponse[]> => {
-    const response = await axios.get(`${API_BASE_URL}/topics/${topicName}/messages`);
-    return response.data;
+    return callApiWithFallback(
+        `/topics/${topicName}/messages`,
+        'get',
+        {
+            headers: getAuthHeaders()
+        }
+    );
 };

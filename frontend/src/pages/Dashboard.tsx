@@ -1,152 +1,156 @@
 import React, { useState, useEffect } from 'react';
 import {
     Box,
-    Heading,
-    Text,
-    SimpleGrid,
     Container,
+    Heading,
+    SimpleGrid,
+    Text,
+    VStack,
+    HStack,
+    Stat,
+    StatLabel,
+    StatNumber,
+    StatHelpText,
     Button,
-    Stack,
-    Icon,
-    Card,
-    CardHeader,
-    CardBody,
-    CardFooter,
-    Avatar,
-    Flex,
-    Spinner,
-    Center,
     useColorModeValue,
+    Spinner,
 } from '@chakra-ui/react';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getTopics } from '../api/messages';
-import { AddIcon, ChatIcon } from '@chakra-ui/icons';
-
-interface Topic {
-    name: string;
-    description: string;
-}
 
 const Dashboard: React.FC = () => {
-    const [topics, setTopics] = useState<Topic[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const { user } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [stats, setStats] = useState({
+        totalMessages: 0,
+        activeTopics: 0,
+        latestActivity: null
+    });
 
-    const bgColor = useColorModeValue('white', 'gray.700');
+    const cardBg = useColorModeValue('white', 'gray.700');
     const borderColor = useColorModeValue('gray.200', 'gray.600');
 
     useEffect(() => {
-        const fetchTopics = async () => {
+        // Simulating data loading
+        const loadDashboardData = async () => {
             try {
-                const topicNames = await getTopics();
-                // Convert simple topic names to Topic objects with descriptions
-                const formattedTopics = topicNames.map(name => ({
-                    name,
-                    description: `Discussion about ${name.toLowerCase().replace('_', ' ')}`
-                }));
-                setTopics(formattedTopics);
-                setError(null);
-            } catch (err) {
-                console.error('Error fetching topics:', err);
-                setError('Failed to load topics. Please try again later.');
+                // In a real app, you'd fetch this data from your API
+                await new Promise(resolve => setTimeout(resolve, 800));
+
+                setStats({
+                    totalMessages: 42,
+                    activeTopics: 5,
+                    latestActivity: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error('Failed to load dashboard data:', error);
             } finally {
-                setIsLoading(false);
+                setLoading(false);
             }
         };
 
-        fetchTopics();
+        loadDashboardData();
     }, []);
 
-    if (isLoading) {
+    if (loading) {
         return (
-            <Center h="50vh">
+            <Container centerContent py={10}>
                 <Spinner size="xl" />
-            </Center>
+                <Text mt={4}>Loading dashboard data...</Text>
+            </Container>
         );
     }
 
     return (
-        <Container maxW="container.xl" py={8}>
-            <Box textAlign="center" mb={10}>
-                <Heading as="h1" size="xl" mb={2}>
-                    Welcome, {user?.displayName || 'Neighbor'}!
-                </Heading>
-                <Text fontSize="lg" color="gray.600">
-                    Stay connected with your local community
-                </Text>
-            </Box>
+        <Container maxW="container.lg" py={8}>
+            <VStack spacing={8} align="stretch">
+                <Box textAlign="center" mb={4}>
+                    <Heading as="h1" size="xl">Welcome, {user?.username || 'User'}!</Heading>
+                    <Text mt={2} color="gray.500">Here's what's happening in your community</Text>
+                </Box>
 
-            <SimpleGrid columns={{ base: 1, md: 2 }} spacing={6} mb={8}>
-                <Card bg={bgColor} borderWidth="1px" borderColor={borderColor} boxShadow="sm">
-                    <CardHeader>
-                        <Heading size="md">Post a Message</Heading>
-                    </CardHeader>
-                    <CardBody>
-                        <Text>Share news, ask questions, or start discussions with your community.</Text>
-                    </CardBody>
-                    <CardFooter>
-                        <Button as={RouterLink} to="/post-message" colorScheme="blue" leftIcon={<Icon as={ChatIcon} />}>
+                {/* Stats Cards */}
+                <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
+                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg}>
+                        <Stat>
+                            <StatLabel fontSize="lg">Your Messages</StatLabel>
+                            <StatNumber>{stats.totalMessages}</StatNumber>
+                            <StatHelpText>Across all topics</StatHelpText>
+                            <Button
+                                as={Link}
+                                to="/my-messages"
+                                colorScheme="blue"
+                                variant="outline"
+                                size="sm"
+                                mt={2}
+                            >
+                                View All
+                            </Button>
+                        </Stat>
+                    </Box>
+
+                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg}>
+                        <Stat>
+                            <StatLabel fontSize="lg">Active Topics</StatLabel>
+                            <StatNumber>{stats.activeTopics}</StatNumber>
+                            <StatHelpText>Join the conversation</StatHelpText>
+                            <Button
+                                as={Link}
+                                to="/topics"
+                                colorScheme="blue"
+                                variant="outline"
+                                size="sm"
+                                mt={2}
+                            >
+                                Browse Topics
+                            </Button>
+                        </Stat>
+                    </Box>
+
+                    <Box p={5} shadow="md" borderWidth="1px" borderRadius="lg" bg={cardBg}>
+                        <Stat>
+                            <StatLabel fontSize="lg">Share Something</StatLabel>
+                            <StatNumber>New Post</StatNumber>
+                            <StatHelpText>Create a new message</StatHelpText>
+                            <Button
+                                as={Link}
+                                to="/post-message"
+                                colorScheme="blue"
+                                size="sm"
+                                mt={2}
+                            >
+                                Post Now
+                            </Button>
+                        </Stat>
+                    </Box>
+                </SimpleGrid>
+
+                {/* Quick Actions */}
+                <Box
+                    p={5}
+                    mt={6}
+                    shadow="md"
+                    borderWidth="1px"
+                    borderRadius="lg"
+                    bg={cardBg}
+                >
+                    <Heading size="md" mb={4}>Quick Actions</Heading>
+                    <SimpleGrid columns={{ base: 1, sm: 2, md: 4 }} spacing={4}>
+                        <Button as={Link} to="/post-message" colorScheme="blue" variant="solid">
                             Create Post
                         </Button>
-                    </CardFooter>
-                </Card>
-
-                <Card bg={bgColor} borderWidth="1px" borderColor={borderColor} boxShadow="sm">
-                    <CardHeader>
-                        <Heading size="md">Your Messages</Heading>
-                    </CardHeader>
-                    <CardBody>
-                        <Text>View all messages you've posted across different topics.</Text>
-                    </CardBody>
-                    <CardFooter>
-                        <Button as={RouterLink} to="/my-messages" colorScheme="green" leftIcon={<Icon as={AddIcon} />}>
-                            View Your Messages
+                        <Button as={Link} to="/topics" colorScheme="green" variant="solid">
+                            Browse Topics
                         </Button>
-                    </CardFooter>
-                </Card>
-            </SimpleGrid>
-
-            <Box mb={8}>
-                <Heading as="h2" size="lg" mb={4}>
-                    Community Topics
-                </Heading>
-                {error ? (
-                    <Text color="red.500">{error}</Text>
-                ) : (
-                    <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={6}>
-                        {topics.map((topic) => (
-                            <Card
-                                key={topic.name}
-                                bg={bgColor}
-                                borderWidth="1px"
-                                borderColor={borderColor}
-                                boxShadow="sm"
-                                transition="all 0.3s"
-                                _hover={{ transform: 'translateY(-5px)', boxShadow: 'md' }}
-                            >
-                                <CardHeader>
-                                    <Heading size="md">{topic.name}</Heading>
-                                </CardHeader>
-                                <CardBody>
-                                    <Text>{topic.description}</Text>
-                                </CardBody>
-                                <CardFooter>
-                                    <Button
-                                        as={RouterLink}
-                                        to={`/topics/${topic.name}`}
-                                        variant="outline"
-                                        colorScheme="blue"
-                                    >
-                                        View Topic
-                                    </Button>
-                                </CardFooter>
-                            </Card>
-                        ))}
+                        <Button as={Link} to="/my-messages" colorScheme="purple" variant="solid">
+                            My Messages
+                        </Button>
+                        <Button as={Link} to="/profile" colorScheme="orange" variant="solid">
+                            Edit Profile
+                        </Button>
                     </SimpleGrid>
-                )}
-            </Box>
+                </Box>
+            </VStack>
         </Container>
     );
 };

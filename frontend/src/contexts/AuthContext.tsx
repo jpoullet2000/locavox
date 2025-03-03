@@ -1,169 +1,136 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { authAPI } from '../api/client';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { getErrorMessage } from '../api/apiUtils';
 
-// Define user type
-export interface User {
+// Define the user type
+interface User {
     id: string;
-    email: string;
-    displayName: string;
-    photoURL?: string;
+    username: string;
+    email?: string;
+    // Add other user properties as needed
 }
 
-// Define auth context type
+// Define the context type
 interface AuthContextType {
     user: User | null;
     loading: boolean;
     error: string | null;
-    login: (email: string, password: string) => Promise<void>;
-    register: (email: string, password: string, displayName?: string) => Promise<void>;
-    logout: () => Promise<void>;
-    clearError: () => void;
+    login: (username: string, password: string) => Promise<void>;
+    logout: () => void;
+    isAuthenticated: boolean;
 }
 
 // Create the context with a default value
 const AuthContext = createContext<AuthContextType>({
     user: null,
-    loading: false,
+    loading: true,
     error: null,
     login: async () => { },
-    register: async () => { },
-    logout: async () => { },
-    clearError: () => { },
+    logout: () => { },
+    isAuthenticated: false,
 });
 
-// Provider component
-export function AuthProvider({ children }: { children: ReactNode }) {
+// Custom hook to use the auth context
+export const useAuth = () => useContext(AuthContext);
+
+interface AuthProviderProps {
+    children: ReactNode;
+}
+
+// AuthProvider component
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Check if user is already logged in
+    // Check if the user is already authenticated on mount
     useEffect(() => {
-        const checkAuthStatus = async () => {
+        const checkAuth = async () => {
             try {
-                const token = localStorage.getItem('token');
-                if (token) {
-                    try {
-                        const userData = await authAPI.getCurrentUser();
-                        setUser(userData);
-                    } catch (error) {
-                        // Invalid token or session expired
-                        localStorage.removeItem('token');
-                    }
+                // Check for stored user data in localStorage
+                const storedUser = localStorage.getItem('user');
+                const storedToken = localStorage.getItem('token');
+
+                if (storedUser && storedToken) {
+                    setUser(JSON.parse(storedUser));
+                    console.log('User restored from local storage');
                 }
+            } catch (err) {
+                console.error('Auth initialization error:', err);
+                setError('Failed to restore authentication state');
             } finally {
+                // Always set loading to false when done
                 setLoading(false);
             }
         };
 
-        checkAuthStatus();
+        // Set a timeout to ensure we don't block indefinitely
+        const timeoutId = setTimeout(() => {
+            if (loading) {
+                console.warn('Auth initialization timeout exceeded');
+                setLoading(false);
+                setError('Authentication check timed out');
+            }
+        }, 3000);
+
+        checkAuth();
+
+        return () => clearTimeout(timeoutId);
     }, []);
 
-    const login = async (email: string, password: string) => {
+    // Login function
+    const login = async (username: string, password: string) => {
         setLoading(true);
         setError(null);
 
         try {
-            console.log(`Attempting to log in with email: ${email}`);
-            const response = await authAPI.login(email, password);
+            // For demo, we'll just simulate a login
+            // In a real app, you would call your login API
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Check if the response contains what we expect
-            if (!response || !response.token || !response.user) {
-                throw new Error('Invalid response from server');
-            }
+            // Create a mock user
+            const newUser = {
+                id: `user-${username}`,
+                username,
+                email: `${username}@example.com`,
+            };
 
-            // Store the token
-            localStorage.setItem('token', response.token);
+            // Store the user in state and localStorage
+            setUser(newUser);
+            localStorage.setItem('user', JSON.stringify(newUser));
+            localStorage.setItem('token', 'mock-jwt-token');
 
-            // Set the user
-            setUser(response.user);
-
-            console.log('Login successful!', response.user);
-        } catch (error: any) {
-            console.error('Login failed:', error);
-
-            // Create a user-friendly error message
-            let errorMessage = 'Login failed: ';
-
-            if (error.response) {
-                // The request was made and the server responded with a status code
-                errorMessage += error.response.data?.message || error.response.statusText || 'Server error';
-            } else if (error.request) {
-                // The request was made but no response was received
-                errorMessage += 'No response from server';
-            } else {
-                // Something happened in setting up the request
-                errorMessage += error.message || 'Unknown error';
-            }
-
-            setError(errorMessage);
+            console.log('User logged in:', newUser);
+        } catch (err) {
+            console.error('Login error:', err);
+            const errorMsg = getErrorMessage(err, 'Login failed. Please try again.');
+            setError(errorMsg);
+            throw new Error(errorMsg);
         } finally {
             setLoading(false);
         }
     };
 
-    const register = async (email: string, password: string, displayName?: string) => {
-        setLoading(true);
-        setError(null);
-
-        try {
-            const response = await authAPI.register(email, password, displayName);
-
-            // Check response
-            if (!response || !response.token || !response.user) {
-                throw new Error('Invalid response from server');
-            }
-
-            // Store token and user
-            localStorage.setItem('token', response.token);
-            setUser(response.user);
-        } catch (error: any) {
-            console.error('Registration failed:', error);
-
-            let errorMessage = 'Registration failed: ';
-
-            if (error.response) {
-                errorMessage += error.response.data?.message || error.response.statusText || 'Server error';
-            } else if (error.request) {
-                errorMessage += 'No response from server';
-            } else {
-                errorMessage += error.message || 'Unknown error';
-            }
-
-            setError(errorMessage);
-        } finally {
-            setLoading(false);
-        }
+    // Logout function
+    const logout = () => {
+        setUser(null);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        console.log('User logged out');
     };
 
-    const logout = async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-            await authAPI.logout();
-        } catch (error) {
-            console.error('Logout error:', error);
-            // Even if server logout fails, we proceed with local logout
-        } finally {
-            localStorage.removeItem('token');
-            setUser(null);
-            setLoading(false);
-        }
-    };
-
-    const clearError = () => {
-        setError(null);
-    };
-
+    // Provide the auth context
     return (
-        <AuthContext.Provider value={{ user, loading, error, login, register, logout, clearError }}>
+        <AuthContext.Provider
+            value={{
+                user,
+                loading,
+                error,
+                login,
+                logout,
+                isAuthenticated: !!user,
+            }}
+        >
             {children}
         </AuthContext.Provider>
     );
-}
-
-// Custom hook to use the auth context
-export function useAuth() {
-    return useContext(AuthContext);
-}
+};

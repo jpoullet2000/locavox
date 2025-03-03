@@ -4,171 +4,201 @@ import {
     Button,
     FormControl,
     FormLabel,
-    Heading,
+    FormErrorMessage,
     Input,
     Stack,
+    Heading,
     Text,
     useColorModeValue,
-    FormErrorMessage,
-    Alert,
-    AlertIcon,
-    Link,
+    Container,
+    useToast,
     InputGroup,
     InputRightElement,
-    IconButton,
+    Link as ChakraLink,
 } from '@chakra-ui/react';
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { Link, useNavigate } from 'react-router-dom';
 
 const Register: React.FC = () => {
+    const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
-    const [displayName, setDisplayName] = useState('');
     const [showPassword, setShowPassword] = useState(false);
-    const [passwordError, setPasswordError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errors, setErrors] = useState<Record<string, string>>({});
 
-    const { register, error, clearError } = useAuth();
     const navigate = useNavigate();
+    const toast = useToast();
+
+    const validateForm = () => {
+        const newErrors: Record<string, string> = {};
+
+        if (!username) {
+            newErrors.username = 'Username is required';
+        } else if (username.length < 3) {
+            newErrors.username = 'Username must be at least 3 characters';
+        }
+
+        if (!email) {
+            newErrors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(email)) {
+            newErrors.email = 'Email is invalid';
+        }
+
+        if (!password) {
+            newErrors.password = 'Password is required';
+        } else if (password.length < 6) {
+            newErrors.password = 'Password must be at least 6 characters';
+        }
+
+        if (password !== confirmPassword) {
+            newErrors.confirmPassword = 'Passwords do not match';
+        }
+
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Validate password match
-        if (password !== confirmPassword) {
-            setPasswordError('Passwords do not match');
+        if (!validateForm()) {
             return;
         }
 
-        // Clear any previous error
-        setPasswordError('');
         setIsSubmitting(true);
 
         try {
-            await register(email, password, displayName);
-            navigate('/dashboard');
+            // In a real app, you would call your register API here
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            toast({
+                title: 'Account created.',
+                description: "We've created your account for you.",
+                status: 'success',
+                duration: 5000,
+                isClosable: true,
+            });
+
+            navigate('/login');
         } catch (error) {
-            // Error is handled by the auth context
+            toast({
+                title: 'An error occurred.',
+                description: 'Unable to create your account.',
+                status: 'error',
+                duration: 5000,
+                isClosable: true,
+            });
         } finally {
             setIsSubmitting(false);
         }
     };
 
     return (
-        <Box
-            minH={'100vh'}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-            bg={useColorModeValue('gray.50', 'gray.800')}>
-            <Stack spacing={8} mx={'auto'} maxW={'lg'} py={12} px={6}>
-                <Stack align={'center'}>
-                    <Heading fontSize={'4xl'} textAlign={'center'}>
-                        Sign up for LocaVox
-                    </Heading>
-                    <Text fontSize={'lg'} color={'gray.600'}>
-                        to connect with your local community ✌️
+        <Container maxW="lg" py={12}>
+            <Stack spacing={8}>
+                <Stack align="center">
+                    <Heading fontSize="2xl">Create your account</Heading>
+                    <Text fontSize="md" color="gray.600">
+                        to enjoy all of our community features ✌️
                     </Text>
                 </Stack>
+
                 <Box
-                    rounded={'lg'}
+                    rounded="lg"
                     bg={useColorModeValue('white', 'gray.700')}
-                    boxShadow={'lg'}
-                    p={8}>
-                    {error && (
-                        <Alert status="error" mb={4} borderRadius="md">
-                            <AlertIcon />
-                            {error}
-                        </Alert>
-                    )}
+                    boxShadow="lg"
+                    p={8}
+                >
                     <form onSubmit={handleSubmit}>
                         <Stack spacing={4}>
-                            <FormControl id="displayName" isRequired>
-                                <FormLabel>Display Name</FormLabel>
+                            <FormControl id="username" isRequired isInvalid={!!errors.username}>
+                                <FormLabel>Username</FormLabel>
                                 <Input
                                     type="text"
-                                    value={displayName}
-                                    onChange={(e) => {
-                                        setDisplayName(e.target.value);
-                                        clearError();
-                                    }}
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
                                 />
+                                <FormErrorMessage>{errors.username}</FormErrorMessage>
                             </FormControl>
-                            <FormControl id="email" isRequired>
+
+                            <FormControl id="email" isRequired isInvalid={!!errors.email}>
                                 <FormLabel>Email address</FormLabel>
                                 <Input
                                     type="email"
                                     value={email}
-                                    onChange={(e) => {
-                                        setEmail(e.target.value);
-                                        clearError();
-                                    }}
+                                    onChange={(e) => setEmail(e.target.value)}
                                 />
+                                <FormErrorMessage>{errors.email}</FormErrorMessage>
                             </FormControl>
-                            <FormControl id="password" isRequired isInvalid={!!passwordError}>
+
+                            <FormControl id="password" isRequired isInvalid={!!errors.password}>
                                 <FormLabel>Password</FormLabel>
                                 <InputGroup>
                                     <Input
                                         type={showPassword ? 'text' : 'password'}
                                         value={password}
-                                        onChange={(e) => {
-                                            setPassword(e.target.value);
-                                            setPasswordError('');
-                                            clearError();
-                                        }}
+                                        onChange={(e) => setPassword(e.target.value)}
                                     />
-                                    <InputRightElement h={'full'}>
-                                        <IconButton
-                                            aria-label={showPassword ? 'Hide password' : 'Show password'}
-                                            variant={'ghost'}
+                                    <InputRightElement h="full">
+                                        <Button
+                                            variant="ghost"
                                             onClick={() => setShowPassword(!showPassword)}
-                                            icon={showPassword ? <ViewOffIcon /> : <ViewIcon />}
-                                        />
+                                        >
+                                            {showPassword ? <ViewOffIcon /> : <ViewIcon />}
+                                        </Button>
                                     </InputRightElement>
                                 </InputGroup>
+                                <FormErrorMessage>{errors.password}</FormErrorMessage>
                             </FormControl>
-                            <FormControl id="confirmPassword" isRequired isInvalid={!!passwordError}>
+
+                            <FormControl id="confirmPassword" isRequired isInvalid={!!errors.confirmPassword}>
                                 <FormLabel>Confirm Password</FormLabel>
-                                <Input
-                                    type={showPassword ? 'text' : 'password'}
-                                    value={confirmPassword}
-                                    onChange={(e) => {
-                                        setConfirmPassword(e.target.value);
-                                        setPasswordError('');
-                                        clearError();
-                                    }}
-                                />
-                                {passwordError && <FormErrorMessage>{passwordError}</FormErrorMessage>}
+                                <InputGroup>
+                                    <Input
+                                        type={showPassword ? 'text' : 'password'}
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                    />
+                                    <InputRightElement h="full">
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                        >
+                                            {showPassword ? <ViewOffIcon /> : <ViewIcon />}
+                                        </Button>
+                                    </InputRightElement>
+                                </InputGroup>
+                                <FormErrorMessage>{errors.confirmPassword}</FormErrorMessage>
                             </FormControl>
+
                             <Stack spacing={10} pt={2}>
                                 <Button
                                     type="submit"
-                                    loadingText="Submitting"
+                                    loadingText="Creating account..."
                                     size="lg"
-                                    bg={'blue.400'}
-                                    color={'white'}
+                                    bg="blue.400"
+                                    color="white"
                                     _hover={{
                                         bg: 'blue.500',
                                     }}
-                                    isLoading={isSubmitting}>
+                                    isLoading={isSubmitting}
+                                >
                                     Sign up
                                 </Button>
                             </Stack>
+
                             <Stack pt={6}>
-                                <Text align={'center'}>
-                                    Already a user? {' '}
-                                    <Link as={RouterLink} to="/login" color={'blue.400'}>
-                                        Login
-                                    </Link>
+                                <Text align="center">
+                                    Already a user? <ChakraLink as={Link} to="/login" color="blue.400">Login</ChakraLink>
                                 </Text>
                             </Stack>
                         </Stack>
                     </form>
                 </Box>
             </Stack>
-        </Box>
+        </Container>
     );
 };
 

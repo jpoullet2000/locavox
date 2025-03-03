@@ -5,51 +5,89 @@ import {
     Container,
     FormControl,
     FormLabel,
+    FormErrorMessage,
     Heading,
     Input,
     Select,
     Textarea,
     VStack,
-    useToast
+    useColorModeValue,
+    useToast,
+    Text,
+    Flex,
+    Spinner,
 } from '@chakra-ui/react';
-import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { getTopics, postMessage } from '../api/messages';
+
+interface Topic {
+    id: string;
+    name: string;
+    description: string;
+}
 
 const PostMessage: React.FC = () => {
     const [content, setContent] = useState('');
     const [selectedTopic, setSelectedTopic] = useState('');
-    const [topics, setTopics] = useState<string[]>([]);
+    const [topics, setTopics] = useState<Topic[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
     const { user } = useAuth();
     const toast = useToast();
     const navigate = useNavigate();
 
+    const bgColor = useColorModeValue('white', 'gray.700');
+
+    // Fetch available topics
     useEffect(() => {
         const fetchTopics = async () => {
             try {
-                const topicsData = await getTopics();
-                setTopics(topicsData);
-                if (topicsData.length > 0) {
-                    setSelectedTopic(topicsData[0]);
+                setIsLoading(true);
+                const response = await getTopics();
+
+                if (response && Array.isArray(response.topics)) {
+                    setTopics(response.topics);
+                    // Select the first topic by default if available
+                    if (response.topics.length > 0) {
+                        setSelectedTopic(response.topics[0].name);
+                    }
+                } else {
+                    // Fallback topics
+                    const fallbackTopics = [
+                        { id: '1', name: 'General', description: 'General discussions' },
+                        { id: '2', name: 'Events', description: 'Local events' },
+                        { id: '3', name: 'Help', description: 'Requests for help' },
+                    ];
+                    setTopics(fallbackTopics);
+                    setSelectedTopic('General');
                 }
-            } catch (error) {
-                toast({
-                    title: 'Error',
-                    description: 'Failed to fetch topics',
-                    status: 'error',
-                    duration: 3000,
-                    isClosable: true,
-                });
+            } catch (err) {
+                console.error('Failed to fetch topics:', err);
+                setError('Failed to load topics. Please try again later.');
+
+                // Set fallback topics
+                const fallbackTopics = [
+                    { id: '1', name: 'General', description: 'General discussions' },
+                    { id: '2', name: 'Events', description: 'Local events' },
+                    { id: '3', name: 'Help', description: 'Requests for help' },
+                ];
+                setTopics(fallbackTopics);
+                setSelectedTopic('General');
+            } finally {
+                setIsLoading(false);
             }
         };
 
         fetchTopics();
-    }, [toast]);
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
+        // Validation
         if (!content.trim()) {
             toast({
                 title: 'Error',
@@ -72,93 +110,114 @@ const PostMessage: React.FC = () => {
             return;
         }
 
-        setIsLoading(true);
+        // Submit the message
+        setIsSubmitting(true);
 
         try {
-            await postMessage({
+            const response = await postMessage({
                 content,
                 topicName: selectedTopic,
                 userId: user?.id || 'anonymous',
-                metadata: {
-                    source: 'web',
-                    timestamp: new Date().toISOString(),
-                }
+                metadata: { source: 'web' }
             });
 
             toast({
-                title: 'Success',
-                description: 'Message posted successfully',
+                title: 'Message posted',
+                description: 'Your message has been posted successfully',
                 status: 'success',
-                duration: 3000,
+                duration: 5000,
                 isClosable: true,
             });
 
-            setContent('');
-
-            // Navigate to the user's messages page after successful post
+            // Redirect to the topic or my messages page
             navigate('/my-messages');
-        } catch (error) {
+        } catch (err) {
+            console.error('Failed to post message:', err);
             toast({
                 title: 'Error',
-                description: 'Failed to post message',
+                description: 'Failed to post message. Please try again later.',
                 status: 'error',
-                duration: 3000,
+                duration: 5000,
                 isClosable: true,
             });
         } finally {
-            setIsLoading(false);
+            setIsSubmitting(false);
         }
     };
 
+    if (isLoading) {
+        return (
+            <Container centerContent py={10}>
+                <Spinner size="xl" />
+                <Text mt={4}>Loading...</Text>
+            </Container>
+        );
+    }
+
     return (
         <Container maxW="container.md" py={8}>
-            <VStack spacing={6} align="stretch">
-                <Heading as="h1" size="xl" textAlign="center">
-                    Post a New Message
-                </Heading>
+            <Box bg={bgColor} p={8} borderRadius="lg" boxShadow="md">
+                <VStack spacing={6} align="stretch">
+                    <Heading as="h1" size="xl" textAlign="center">
+                        Post a New Message
+                    </Heading>
 
-                <Box as="form" onSubmit={handleSubmit} bg="white" p={6} borderRadius="md" boxShadow="md">
-                    <VStack spacing={4} align="stretch">
-                        <FormControl isRequired>
-                            <FormLabel>Select Topic</FormLabel>
-                            <Select
-                                value={selectedTopic}
-                                onChange={(e) => setSelectedTopic(e.target.value)}
-                                placeholder="Select a topic"
-                            >
-                                {topics.map((topic) => (
-                                    <option key={topic} value={topic}>
-                                        {topic}
-                                    </option>
-                                ))}
-                            </Select>
-                        </FormControl>
+                    {error && (
+                        <Text color="red.500" textAlign="center">
+                            {error}
+                        </Text>
+                    )}
 
-                        <FormControl isRequired>
-                            <FormLabel>Message</FormLabel>
-                            <Textarea
-                                value={content}
-                                onChange={(e) => setContent(e.target.value)}
-                                placeholder="Enter your message here..."
-                                size="lg"
-                                rows={6}
-                            />
-                        </FormControl>
+                    <form onSubmit={handleSubmit}>
+                        <VStack spacing={4} align="stretch">
+                            <FormControl isRequired>
+                                <FormLabel>Topic</FormLabel>
+                                <Select
+                                    value={selectedTopic}
+                                    onChange={(e) => setSelectedTopic(e.target.value)}
+                                    placeholder="Select a topic"
+                                >
+                                    {topics.map((topic) => (
+                                        <option key={topic.id} value={topic.name}>
+                                            {topic.name} - {topic.description}
+                                        </option>
+                                    ))}
+                                </Select>
+                            </FormControl>
 
-                        <Button
-                            type="submit"
-                            colorScheme="blue"
-                            size="lg"
-                            isLoading={isLoading}
-                            loadingText="Posting..."
-                            width="full"
-                            mt={4}
-                        >
-                            Post Message
-                        </Button>
-                    </VStack>
-                </Box>
-            </VStack>
+                            <FormControl isRequired>
+                                <FormLabel>Message</FormLabel>
+                                <Textarea
+                                    value={content}
+                                    onChange={(e) => setContent(e.target.value)}
+                                    placeholder="What would you like to share with your community?"
+                                    size="lg"
+                                    minH="200px"
+                                    resize="vertical"
+                                />
+                                <FormErrorMessage>Message cannot be empty</FormErrorMessage>
+                            </FormControl>
+
+                            <Flex justifyContent="space-between" mt={6}>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => navigate(-1)}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    colorScheme="blue"
+                                    isLoading={isSubmitting}
+                                    loadingText="Posting..."
+                                >
+                                    Post Message
+                                </Button>
+                            </Flex>
+                        </VStack>
+                    </form>
+                </VStack>
+            </Box>
         </Container>
     );
 };

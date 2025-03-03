@@ -6,9 +6,7 @@ import {
     Text,
     Link,
     useColorModeValue,
-    Flex,
 } from '@chakra-ui/react';
-import { Link as RouterLink } from 'react-router-dom';
 
 const Footer: React.FC = () => {
     return (
@@ -29,11 +27,10 @@ const Footer: React.FC = () => {
                 align={{ base: 'center', md: 'center' }}>
                 <Text>© 2025 LocaVox. All rights reserved</Text>
                 <Stack direction="row" spacing={6}>
-                    <Link as={RouterLink} to="/">Home</Link>
-                    <Link as={RouterLink} to="/about">About</Link>
-                    <Link as={RouterLink} to="/contact">Contact</Link>
-                    <Link as={RouterLink} to="/terms">Terms</Link>
-                    <Link as={RouterLink} to="/privacy">Privacy</Link>
+                    <Link href="#">Privacy</Link>
+                    <Link href="#">Terms</Link>
+                    <Link href="#">About</Link>
+                    <Link href="#">Contact</Link>
                 </Stack>
             </Container>
         </Box>

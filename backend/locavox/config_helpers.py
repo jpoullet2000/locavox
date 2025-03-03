@@ -1,6 +1,10 @@
 """Helper functions for configuration management, especially for testing"""
 
-from . import config
+from typing import Optional
+from .config import DEFAULT_MESSAGE_LIMIT
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Use a simple global dict for test overrides instead of thread-local storage
 # This is more reliable across test scenarios with FastAPI's TestClient
@@ -17,14 +21,13 @@ def set_test_value(key, value):
         setattr(config, key, value)
 
 
-def get_message_limit():
-    """Get the message limit, respecting test overrides if present"""
-    # Check for an override first
-    if "MAX_MESSAGES_PER_USER" in _test_values:
-        return _test_values["MAX_MESSAGES_PER_USER"]
-
-    # Otherwise use the config value
-    return config.MAX_MESSAGES_PER_USER
+def get_message_limit(override: Optional[int] = None) -> int:
+    """
+    Get the message limit, with an optional override
+    """
+    if override is not None and override > 0:
+        return override
+    return DEFAULT_MESSAGE_LIMIT
 
 
 def reset_test_values():

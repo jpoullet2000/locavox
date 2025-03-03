@@ -17,10 +17,20 @@ import {
     useToast,
     Tag,
     TagLabel,
+    IconButton,
+    AlertDialog,
+    AlertDialogBody,
+    AlertDialogContent,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogOverlay,
+    useDisclosure,
 } from '@chakra-ui/react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getUserMessages } from '../api/messages';
+import { getUserMessages, deleteMessage } from '../api/messages';
+import { DeleteIcon } from '@chakra-ui/icons';
+import { formatDate } from '../api/apiUtils';
 
 interface MessageData {
     message: {
@@ -30,7 +40,7 @@ interface MessageData {
         timestamp: string;
         metadata?: Record<string, any>;
     };
-    topic: string;
+    topic: string | { name: string; description: string }; // Handle both string and object formats
 }
 
 interface UserMessagesResponse {
@@ -44,39 +54,85 @@ const MyMessages: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [totalMessages, setTotalMessages] = useState(0);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [messageToDelete, setMessageToDelete] = useState<{ id: string; topicName: string } | null>(null);
+    const { isOpen, onOpen, onClose } = useDisclosure();
+    const cancelRef = React.useRef<HTMLButtonElement>(null);
     const { user } = useAuth();
     const toast = useToast();
 
     const bgColor = useColorModeValue('white', 'gray.700');
     const borderColor = useColorModeValue('gray.200', 'gray.600');
 
+    const fetchMessages = async () => {
+        if (!user?.id) {
+            setError('Please log in to view your messages');
+            setIsLoading(false);
+            return;
+        }
+
+        try {
+            setIsLoading(true);
+            const response = await getUserMessages(user.id);
+            setMessages(response.messages);
+            setTotalMessages(response.total);
+            setIsLoading(false);
+        } catch (error) {
+            console.error('Error fetching messages:', error);
+            setError('Failed to fetch messages. Please try again later.');
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const fetchMessages = async () => {
-            if (!user?.id) {
-                setError('Please log in to view your messages');
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                setIsLoading(true);
-                const response = await getUserMessages(user.id);
-                setMessages(response.messages);
-                setTotalMessages(response.total);
-                setIsLoading(false);
-            } catch (error) {
-                console.error('Error fetching messages:', error);
-                setError('Failed to fetch messages. Please try again later.');
-                setIsLoading(false);
-            }
-        };
-
         fetchMessages();
     }, [user]);
 
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        return date.toLocaleString();
+    // Helper function to extract topic name regardless of format
+    const getTopicName = (topic: string | { name: string; description: string }): string => {
+        if (typeof topic === 'string') {
+            return topic;
+        }
+        return topic.name;
+    };
+
+    const handleDeleteClick = (messageId: string, topicName: string | { name: string; description: string }) => {
+        const topicNameStr = getTopicName(topicName);
+        setMessageToDelete({ id: messageId, topicName: topicNameStr });
+        onOpen();
+    };
+
+    const confirmDelete = async () => {
+        if (!messageToDelete) return;
+
+        setIsDeleting(true);
+        try {
+            await deleteMessage(messageToDelete.topicName, messageToDelete.id);
+            // Remove the message from the local state
+            setMessages(messages.filter(msg => msg.message.id !== messageToDelete.id));
+            setTotalMessages(prev => Math.max(0, prev - 1));
+
+            toast({
+                title: 'Message deleted',
+                description: 'Your message has been successfully deleted',
+                status: 'success',
+                duration: 3000,
+                isClosable: true,
+            });
+        } catch (error) {
+            console.error('Failed to delete message:', error);
+            toast({
+                title: 'Error',
+                description: 'Failed to delete message. Please try again.',
+                status: 'error',
+                duration: 3000,
+                isClosable: true,
+            });
+        } finally {
+            setIsDeleting(false);
+            onClose();
+            setMessageToDelete(null);
+        }
     };
 
     if (isLoading) {
@@ -139,11 +195,23 @@ const MyMessages: React.FC = () => {
                             <VStack align="stretch" spacing={3}>
                                 <HStack justify="space-between">
                                     <Tag size="md" colorScheme="blue" borderRadius="full">
-                                        <TagLabel>{messageData.topic}</TagLabel>
+                                        <TagLabel>{getTopicName(messageData.topic)}</TagLabel>
                                     </Tag>
-                                    <Text fontSize="sm" color="gray.500">
-                                        {formatDate(messageData.message.timestamp)}
-                                    </Text>
+                                    <Flex align="center">
+                                        <Text fontSize="sm" color="gray.500" mr={3}>
+                                            {formatDate(messageData.message.timestamp)}
+                                        </Text>
+                                        {messageData.message.userId === user?.id && (
+                                            <IconButton
+                                                aria-label="Delete message"
+                                                icon={<DeleteIcon />}
+                                                size="sm"
+                                                colorScheme="red"
+                                                variant="ghost"
+                                                onClick={() => handleDeleteClick(messageData.message.id, messageData.topic)}
+                                            />
+                                        )}
+                                    </Flex>
                                 </HStack>
 
                                 <Text fontSize="md" whiteSpace="pre-wrap">
@@ -184,6 +252,40 @@ const MyMessages: React.FC = () => {
                     </Box>
                 )}
             </VStack>
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog
+                isOpen={isOpen}
+                leastDestructiveRef={cancelRef}
+                onClose={onClose}
+            >
+                <AlertDialogOverlay>
+                    <AlertDialogContent>
+                        <AlertDialogHeader fontSize="lg" fontWeight="bold">
+                            Delete Message
+                        </AlertDialogHeader>
+
+                        <AlertDialogBody>
+                            Are you sure? You can't undo this action afterwards.
+                        </AlertDialogBody>
+
+                        <AlertDialogFooter>
+                            <Button ref={cancelRef} onClick={onClose} disabled={isDeleting}>
+                                Cancel
+                            </Button>
+                            <Button
+                                colorScheme="red"
+                                onClick={confirmDelete}
+                                ml={3}
+                                isLoading={isDeleting}
+                                loadingText="Deleting"
+                            >
+                                Delete
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialogOverlay>
+            </AlertDialog>
         </Container>
     );
 };
