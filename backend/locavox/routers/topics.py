@@ -11,12 +11,13 @@ from ..db.topics import (
 from ..services.auth_service import get_current_user
 from ..models.user import User
 from ..models.topic import TopicCreate, TopicUpdate
-from ..models.base_models import Message, BaseTopic
+from ..models import Message, BaseTopic
 from ..services import message_service, auth_service
 from ..logger import setup_logger
 import uuid
 from datetime import datetime
 from ..config_helpers import get_message_limit
+from ..topic_registry import get_topics as get_topic_registry
 
 # Set up logger for this module
 logger = setup_logger(__name__)
@@ -26,9 +27,6 @@ router = APIRouter(
     tags=["topics"],
     responses={404: {"description": "Not found"}},
 )
-
-# Get references to topics from a central store (from original routers/topics.py)
-from ..topic_registry import get_topics as get_topic_registry
 
 topic_registry = get_topic_registry()
 
@@ -95,6 +93,7 @@ async def create_new_topic(
     topic: TopicCreate, current_user: User = Depends(get_current_user)
 ):
     """Create a new topic."""
+    breakpoint()
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Only admins can create topics")
 

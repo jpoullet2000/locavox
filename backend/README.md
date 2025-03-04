@@ -19,19 +19,7 @@ To install the required dependencies:
 
 ```bash
 cd /home/jbp/projects/locavox/backend
-pip install -r requirements.txt
-```
-
-## Missing Dependency Error
-
-If you see an error like:
-```
-ModuleNotFoundError: No module named 'jose'
-```
-
-Run the following command to install the required dependency:
-```bash
-pip install 'python-jose[cryptography]'
+poetry install
 ```
 
 ## Running the Application

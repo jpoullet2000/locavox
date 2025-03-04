@@ -1,5 +1,5 @@
-from typing import List, Optional, Dict, Any
-from ..models.base_models import Message  # Updated import
+from typing import Optional
+from ..models import Message  # Updated import
 from ..db.database import get_db_connection
 import logging
 from ..config_helpers import get_message_limit

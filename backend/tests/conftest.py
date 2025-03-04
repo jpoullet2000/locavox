@@ -2,12 +2,17 @@ import pytest
 import os
 import shutil
 import logging
+
+# import sys
 from unittest.mock import patch, MagicMock
 from locavox import config
 from locavox.logger import setup_logger
 import tempfile
 from fastapi.testclient import TestClient
 from locavox.main import app
+
+# Add the parent directory to the path so we can import from locavox
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Configure test logger
 test_logger = setup_logger("tests", logging.DEBUG)
@@ -64,7 +69,7 @@ def setup_test_env():
     config.MAX_MESSAGES_PER_USER = original_max_msgs
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_openai():
     """Mock OpenAI API calls to avoid requiring an API key during tests"""
     # Create mock completion response
@@ -86,23 +91,42 @@ def mock_openai():
     )
     mock_client.embeddings.create = MagicMock(return_value=mock_embedding_response)
 
-    # Patch both sync and async OpenAI clients
-    with (
-        patch("openai.OpenAI", return_value=mock_client),
-        patch("openai.AsyncOpenAI", return_value=mock_client),
-        patch("locavox.llm_search.client", mock_client),
-        patch("locavox.llm_search.async_client", mock_client),
-    ):
+    # Check if the modules exist before attempting to patch them
+    patches = []
+
+    # Basic OpenAI patches that should work regardless
+    patches.append(patch("openai.OpenAI", return_value=mock_client))
+    patches.append(patch("openai.AsyncOpenAI", return_value=mock_client))
+
+    # Conditionally add patches for modules that might not exist
+    try:
+        import locavox.llm_search
+
+        patches.append(patch("locavox.llm_search.client", mock_client))
+        patches.append(patch("locavox.llm_search.async_client", mock_client))
+    except ImportError:
+        # Module doesn't exist, don't attempt to patch it
+        test_logger.debug("locavox.llm_search module not found, skipping patch")
+
+    # Apply all valid patches
+    with patch.multiple("", **{p.target: p.new for p in patches}):
         yield mock_client
 
 
 @pytest.fixture
 def mock_embedding_generator():
     """Mock the embedding generator to return consistent test embeddings"""
-    with patch("locavox.embeddings.EmbeddingGenerator.generate") as mock_generate:
-        # Return a small consistent embedding for tests
-        mock_generate.return_value = [0.1] * 384  # Small embedding for tests
-        yield mock_generate
+    # Only mock if the module exists
+    try:
+        from locavox.embeddings import EmbeddingGenerator
+
+        with patch("locavox.embeddings.EmbeddingGenerator.generate") as mock_generate:
+            # Return a small consistent embedding for tests
+            mock_generate.return_value = [0.1] * 384  # Small embedding for tests
+            yield mock_generate
+    except ImportError:
+        # Module doesn't exist, return a simple mock
+        yield MagicMock(return_value=[0.1] * 384)
 
 
 @pytest.fixture
@@ -124,3 +148,14 @@ def reset_config():
     yield
     # Restore values after test
     _reset()
+
+
+# Add any global fixtures here that might be used across multiple test files
+@pytest.fixture
+def test_app():
+    """Create a test application for FastAPI testing"""
+    from fastapi.testclient import TestClient
+    from locavox.main import app
+
+    client = TestClient(app)
+    return client
