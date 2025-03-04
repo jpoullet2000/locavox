@@ -1,17 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, Path, status, Query
-from typing import List, Optional, Dict
-from ..models.base_models import Message, BaseTopic  # Updated import
-from ..services import message_service, auth_service
-from ..models.user import User
-from ..logger import setup_logger
+from fastapi import APIRouter, HTTPException, Depends, Path, Query, status
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
+from ..db.topics import (
+    get_topics,
+    create_topic,
+    get_topic_by_id,
+    update_topic,
+    delete_topic,
+)
+from ..services.auth_service import get_current_user
+from ..models.user import User
+from ..models.topic import TopicCreate, TopicUpdate
+from ..models.base_models import Message, BaseTopic
+from ..services import message_service, auth_service
+from ..logger import setup_logger
 import uuid
 from datetime import datetime
 from ..config_helpers import get_message_limit
-from ..models import (
-    CommunityTaskMarketplace,
-    NeighborhoodHubChat,
-)  # Import from models/__init__.py
 
 # Set up logger for this module
 logger = setup_logger(__name__)
@@ -22,10 +27,34 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Get references to topics from a central store
-from ..topic_registry import get_topics
+# Get references to topics from a central store (from original routers/topics.py)
+from ..topic_registry import get_topics as get_topic_registry
 
-topics = get_topics()
+topic_registry = get_topic_registry()
+
+
+# Response model definitions (from endpoints/topics.py)
+class TopicResponse(BaseModel):
+    id: str
+    title: str
+    description: str
+    category: Optional[str] = None
+    imageUrl: Optional[str] = None
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "id": "123",
+                "title": "Local Events",
+                "description": "Discover upcoming events in your community",
+                "category": "Community",
+                "imageUrl": "https://example.com/images/events.jpg",
+            }
+        }
+
+
+class TopicsListResponse(BaseModel):
+    topics: List[TopicResponse]
 
 
 class MessageRequest(BaseModel):
@@ -34,20 +63,125 @@ class MessageRequest(BaseModel):
     metadata: Optional[dict] = None
 
 
-@router.get("")
-async def list_topics():
-    """List all available topics"""
-    if topics is None:
-        return {"topics": []}
-    return {"topics": list(topics.keys())}
+# Route handlers: TOPIC CRUD OPERATIONS (prioritizing from endpoints/topics.py)
+
+
+@router.get("/", response_model=List[TopicResponse])
+async def read_topics(skip: int = 0, limit: int = 100):
+    """
+    Retrieve all topics.
+
+    Returns a list of topic objects with full attributes instead of just names.
+    """
+    topics = await get_topics(skip=skip, limit=limit)
+
+    # Transform the topics into the expected response format
+    formatted_topics = [
+        TopicResponse(
+            id=str(topic.id),
+            title=topic.title,
+            description=topic.description,
+            category=topic.category,
+            imageUrl=topic.image_url,
+        )
+        for topic in topics
+    ]
+
+    return formatted_topics
+
+
+@router.post("/", response_model=TopicResponse)
+async def create_new_topic(
+    topic: TopicCreate, current_user: User = Depends(get_current_user)
+):
+    """Create a new topic."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can create topics")
+
+    created_topic = await create_topic(topic)
+    return TopicResponse(
+        id=str(created_topic.id),
+        title=created_topic.title,
+        description=created_topic.description,
+        category=created_topic.category,
+        imageUrl=created_topic.image_url,
+    )
+
+
+@router.get("/{topic_id}", response_model=TopicResponse)
+async def read_topic(topic_id: str):
+    """Get a specific topic by ID."""
+    topic = await get_topic_by_id(topic_id)
+
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    return TopicResponse(
+        id=str(topic.id),
+        title=topic.title,
+        description=topic.description,
+        category=topic.category,
+        imageUrl=topic.image_url,
+    )
+
+
+@router.put("/{topic_id}", response_model=TopicResponse)
+async def update_existing_topic(
+    topic_id: str,
+    topic_update: TopicUpdate,
+    current_user: User = Depends(get_current_user),
+):
+    """Update a topic."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can update topics")
+
+    updated_topic = await update_topic(topic_id, topic_update)
+
+    if updated_topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    return TopicResponse(
+        id=str(updated_topic.id),
+        title=updated_topic.title,
+        description=updated_topic.description,
+        category=updated_topic.category,
+        imageUrl=updated_topic.image_url,
+    )
+
+
+@router.delete("/{topic_id}", response_model=dict)
+async def delete_existing_topic(
+    topic_id: str, current_user: User = Depends(get_current_user)
+):
+    """Delete a topic."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can delete topics")
+
+    success = await delete_topic(topic_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    return {"message": "Topic deleted successfully"}
+
+
+# Route handlers: TOPIC REGISTRY & MESSAGES (from original routers/topics.py)
+
+
+@router.get("/registry", response_model=Dict[str, str])
+async def list_topic_registry():
+    """List all available topics in the topic registry"""
+    if topic_registry is None:
+        return {}
+    return {name: topic.__class__.__name__ for name, topic in topic_registry.items()}
 
 
 @router.get("/{topic_name}/messages")
 async def list_messages(topic_name: str):
     """Get all messages in a topic"""
-    if topic_name not in topics:
+    if topic_name not in topic_registry:
         raise HTTPException(status_code=404, detail="Topic not found")
-    messages = await topics[topic_name].get_messages(10)
+    messages = await topic_registry[topic_name].get_messages(10)
     return {"messages": [msg.model_dump() for msg in messages]}
 
 
@@ -111,8 +245,8 @@ async def add_message(
         logger.error(f"Error checking message count for user {user_id}: {e}")
 
     # Create topic if it doesn't exist
-    if topic_name not in topics:
-        topics[topic_name] = BaseTopic(topic_name)
+    if topic_name not in topic_registry:
+        topic_registry[topic_name] = BaseTopic(topic_name)
         logger.debug(f"Created new topic: {topic_name}")
 
     # Handle None metadata by defaulting to empty dict
@@ -126,7 +260,7 @@ async def add_message(
         metadata=metadata,
     )
 
-    await topics[topic_name].add_message(message)
+    await topic_registry[topic_name].add_message(message)
     return message
 
 

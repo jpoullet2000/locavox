@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
+from .routers import topics, users, auth, search
 
 from . import config  # Import config first
 from .logger import setup_logger  # Import our centralized logger
@@ -50,9 +51,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Import and include all routers
-from .routers import topics, users, auth, search
-
+# Include all routers
 app.include_router(auth.router)
 app.include_router(topics.router)
 app.include_router(users.router)
