@@ -3,8 +3,11 @@ import uuid
 from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from locavox.main import app
-from locavox.models import Message, BaseTopic  # Use BaseTopic instead of Topic
+from locavox.models import Message, BaseTopic
 from locavox.logger import setup_logger
+
+# Import the topic registry directly instead of from main
+from locavox.topic_registry import topics
 
 # Set up logger for tests
 logger = setup_logger("tests.user_messages")
@@ -16,7 +19,8 @@ client = TestClient(app)
 @pytest.fixture
 async def setup_test_data(event_loop):
     """Setup test data for user messages endpoint tests"""
-    from locavox.main import topics
+    # Import the topics in a way that ensures we get the dictionary
+    from locavox.topic_registry import topics
 
     # Create test users
     user_ids = [f"test_user_{i}" for i in range(3)]
@@ -24,10 +28,29 @@ async def setup_test_data(event_loop):
     # Create test topics
     topic_names = ["topic_a", "topic_b", "topic_c"]
 
-    # Clear existing topics
-    topics.clear()
+    # Clear existing topics - make sure we're working with a clean slate
+    try:
+        topics.clear()
+    except (AttributeError, TypeError) as e:
+        # If topics isn't a dictionary, try accessing it differently
+        logger.warning(f"Could not clear topics: {e}")
+        # Fallback approach - try importing get_topics function
+        try:
+            from locavox.topic_registry import get_topics
 
-    # Create fresh topics - use BaseTopic instead of Topic
+            topic_dict = get_topics()
+            topic_dict.clear()
+            # Update the module-level reference
+            globals()["topics"] = topic_dict
+        except Exception as e:
+            logger.error(f"Failed to clear topics registry: {e}")
+            raise
+
+    # Verify topics is a dictionary - if not, raise a clear error
+    if not isinstance(topics, dict):
+        raise TypeError(f"Expected topics to be a dict, but got {type(topics)}")
+
+    # Create fresh topics
     for name in topic_names:
         topics[name] = BaseTopic(name)
 

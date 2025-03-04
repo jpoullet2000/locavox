@@ -1,22 +1,26 @@
 import pytest
-import asyncio
 from datetime import datetime
-from locavox.models import Topic, BaseTopic
-from locavox.base_models import Message
+
+# Import BaseTopic instead of Topic
+from locavox.models import BaseTopic, Message
 
 
 @pytest.fixture
 async def test_topics():
-    topics = {"general": Topic("general"), "support": Topic("support")}
+    # Use BaseTopic instead of Topic
+    topics = {
+        "general": BaseTopic(name="general"),
+        "support": BaseTopic(name="support"),
+    }
     yield topics
     # Cleanup code here if needed
 
 
 @pytest.mark.asyncio
 async def test_cross_topic_search():
-    # Create topics
-    topic1 = Topic("topic1")
-    topic2 = Topic("topic2")
+    # Create topics using BaseTopic instead of Topic
+    topic1 = BaseTopic(name="topic1")
+    topic2 = BaseTopic(name="topic2")
 
     # Add messages to both topics
     messages = [
@@ -51,7 +55,9 @@ async def test_cross_topic_search():
 
 @pytest.mark.asyncio
 async def test_metadata_search():
-    topic = Topic("test")
+    # Use BaseTopic with named parameter
+    topic = BaseTopic(name="test")
+
     message = Message(
         id="1",
         content="Message with special metadata",

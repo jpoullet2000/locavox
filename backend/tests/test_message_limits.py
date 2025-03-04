@@ -25,7 +25,8 @@ def test_limit():
 @pytest.fixture(autouse=True)
 async def setup_test_environment(event_loop, test_limit):
     """Setup test environment with a clean topic"""
-    from locavox.main import topics
+    # Import the topic registry directly
+    from locavox.topic_registry import topics
     from locavox.config_helpers import set_test_value, reset_test_values
 
     # Store original limit value
@@ -40,7 +41,7 @@ async def setup_test_environment(event_loop, test_limit):
 
         logger.info(f"Test limit set to {test_limit} messages per user")
 
-        # Create clean test topics
+        # Create clean test topics - clear the dictionary
         topics.clear()
         topics["test_topic"] = BaseTopic("test_topic")
 
@@ -202,16 +203,18 @@ async def test_messages_across_topics_count_toward_limit(client, test_limit):
 
 @pytest.mark.asyncio
 async def test_message_limits_on_base_topic_subclasses(client, test_limit):
-    """Test message limit enforcement on BaseTopic subclasses (like CommunityTaskMarketplace)"""
-    from locavox.main import topics
-    from locavox.models import CommunityTaskMarketplace
+    """Test message limit enforcement on BaseTopic subclasses"""
+    # Import the topics registry directly
+    from locavox.topic_registry import topics
+    from locavox.models import MarketplaceTopic
 
     # Create a user and topic
     user_id = "base_topic_user"
 
-    # Use the CommunityTaskMarketplace class which is a BaseTopic subclass
+    # Use the MarketplaceTopic class which is a BaseTopic subclass
+    # Clear the existing topics first
     topics.clear()
-    topics["marketplace"] = CommunityTaskMarketplace()
+    topics["marketplace"] = MarketplaceTopic()
 
     # Add messages up to the limit
     for i in range(test_limit):

@@ -53,7 +53,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
             raise credentials_exception
 
         # Get the user from the database
-        breakpoint()
         user = await get_user_by_id(user_id)
 
         if user is None:
@@ -90,8 +89,17 @@ async def get_current_user_optional(
 
         # Get the user from the database
         user = await get_user_by_id(user_id)
+
+        # Important: Make sure we return None explicitly if no user found
+        if user is None:
+            return None
+
         return user
-    except JWTError:
+    except JWTError as e:
+        logger.warning(f"JWT error in optional auth: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error in optional auth: {e}")
         return None
 
 
@@ -102,7 +110,6 @@ async def authenticate_user(username: str, password: str) -> Optional[User]:
     """
     if not username or not password:
         return None
-    breakpoint()
     if username == "admin" and password == "admin":
         return User(
             id="admin",

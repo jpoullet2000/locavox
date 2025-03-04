@@ -91,26 +91,68 @@ def mock_openai():
     )
     mock_client.embeddings.create = MagicMock(return_value=mock_embedding_response)
 
-    # Check if the modules exist before attempting to patch them
-    patches = []
+    # Create a dictionary of patches instead of a list
+    patches = {}
 
     # Basic OpenAI patches that should work regardless
-    patches.append(patch("openai.OpenAI", return_value=mock_client))
-    patches.append(patch("openai.AsyncOpenAI", return_value=mock_client))
+    patches["openai.OpenAI"] = mock_client
+    patches["openai.AsyncOpenAI"] = mock_client
 
     # Conditionally add patches for modules that might not exist
     try:
         import locavox.llm_search
 
-        patches.append(patch("locavox.llm_search.client", mock_client))
-        patches.append(patch("locavox.llm_search.async_client", mock_client))
+        patches["locavox.llm_search.client"] = mock_client
+        patches["locavox.llm_search.async_client"] = mock_client
+        test_logger.debug("Added LLM search patches")
     except ImportError:
         # Module doesn't exist, don't attempt to patch it
         test_logger.debug("locavox.llm_search module not found, skipping patch")
 
-    # Apply all valid patches
-    with patch.multiple("", **{p.target: p.new for p in patches}):
+    # Apply all patches at once using patch.multiple
+    with patch.multiple(
+        "", **{target: patch(target, new=value) for target, value in patches.items()}
+    ):
         yield mock_client
+
+
+# Alternative implementation using individual patches if multiple doesn't work
+@pytest.fixture
+def mock_openai_alt():
+    """Alternative implementation of mock_openai using individual context managers"""
+    # Create mock completion response
+    mock_completion_response = MagicMock()
+    mock_completion_response.choices = [MagicMock()]
+    mock_completion_response.choices[0].message.content = "Mocked OpenAI response"
+
+    # Create mock embedding response
+    mock_embedding_response = MagicMock()
+    mock_embedding_response.data = [MagicMock()]
+    mock_embedding_response.data[0].embedding = [
+        0.1
+    ] * 1536  # Standard OpenAI embedding size
+
+    # Create mock client
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = MagicMock(
+        return_value=mock_completion_response
+    )
+    mock_client.embeddings.create = MagicMock(return_value=mock_embedding_response)
+
+    # Apply patches individually using nested context managers
+    with patch("openai.OpenAI", return_value=mock_client):
+        with patch("openai.AsyncOpenAI", return_value=mock_client):
+            # Conditionally patch LLM search if it exists
+            try:
+                import locavox.llm_search
+
+                with patch("locavox.llm_search.client", mock_client):
+                    with patch("locavox.llm_search.async_client", mock_client):
+                        yield mock_client
+            except ImportError:
+                # Module doesn't exist, continue without patching it
+                test_logger.debug("locavox.llm_search module not found, skipping patch")
+                yield mock_client
 
 
 @pytest.fixture

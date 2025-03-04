@@ -1,15 +1,14 @@
 import pytest
 import os
 from datetime import datetime
-from locavox.base_models import Message  # Updated import
-from locavox.models import BaseTopic
+from locavox.models import Message, BaseTopic
 
 
 @pytest.fixture
 def test_topic():
-    """Create a test topic with sync initialization"""
-    topic = BaseTopic("test_topic", "Test Topic Description")
-    topic.initialize_sync()  # Initialize synchronously
+    """Create a test topic"""
+    # Create the topic without any initialization - your BaseTopic doesn't have initialize_sync
+    topic = BaseTopic(name="test_topic", description="Test Topic Description")
     return topic
 
 
@@ -33,19 +32,21 @@ def test_message():
         content="Test message content",
         userId="test_user",
         timestamp=datetime.now(),
-        metadata={
-            "test_key": "test_value"
-        },  # This will be automatically converted to string
+        metadata={"test_key": "test_value"},
     )
 
 
 @pytest.mark.asyncio
 async def test_message_posting(test_topic, test_message):
+    """Test adding a message to a topic"""
     await test_topic.add_message(test_message)
 
-    assert len(test_topic.messages) == 1
-    assert test_topic.messages[0].content == test_message.content
+    # Get recent messages and check them
+    messages = await test_topic.get_messages(limit=10)
+    assert len(messages) == 1
+    assert messages[0].content == test_message.content
 
+    # Use the search method to find the message
     stored_messages = await test_topic.search_messages(test_message.content)
     assert len(stored_messages) == 1
     assert stored_messages[0].content == test_message.content
@@ -54,6 +55,7 @@ async def test_message_posting(test_topic, test_message):
 
 @pytest.mark.asyncio
 async def test_message_search(test_topic, test_message):
+    """Test searching for messages in a topic"""
     await test_topic.add_message(test_message)
 
     second_message = Message(
@@ -70,12 +72,13 @@ async def test_message_search(test_topic, test_message):
     assert len(results) == 2
 
     results = await test_topic.search_messages("Another")
-    assert len(results) == 1  # Fixed parentheses placement
+    assert len(results) == 1
     assert results[0].content == "Another test message"
 
 
 @pytest.mark.asyncio
 async def test_message_metadata_handling(test_topic, test_message):
+    """Test that message metadata is preserved"""
     await test_topic.add_message(test_message)
 
     # Verify metadata is preserved
@@ -88,6 +91,7 @@ async def test_message_metadata_handling(test_topic, test_message):
 
 @pytest.mark.asyncio
 async def test_complex_metadata_handling(test_topic):
+    """Test handling of complex metadata structures"""
     complex_message = Message(
         id="test_id_789",
         content="Message with complex metadata",
@@ -108,3 +112,44 @@ async def test_complex_metadata_handling(test_topic):
     assert retrieved.metadata["numbers"] == [1, 2, 3]
     assert retrieved.metadata["nested"]["key"] == "value"
     assert retrieved.metadata["mixed"][0]["a"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_messages_by_user(test_topic):
+    """Test retrieving messages from a specific user"""
+    # Add messages from different users
+    user1_msg1 = Message(
+        id="user1_msg1",
+        content="Message from user 1",
+        userId="user1",
+        timestamp=datetime.now(),
+        metadata={},
+    )
+    user1_msg2 = Message(
+        id="user1_msg2",
+        content="Another message from user 1",
+        userId="user1",
+        timestamp=datetime.now(),
+        metadata={},
+    )
+    user2_msg = Message(
+        id="user2_msg",
+        content="Message from user 2",
+        userId="user2",
+        timestamp=datetime.now(),
+        metadata={},
+    )
+
+    await test_topic.add_message(user1_msg1)
+    await test_topic.add_message(user1_msg2)
+    await test_topic.add_message(user2_msg)
+
+    # Retrieve messages for user1
+    user1_messages = await test_topic.get_messages_by_user("user1")
+    assert len(user1_messages) == 2
+    assert all(msg.userId == "user1" for msg in user1_messages)
+
+    # Retrieve messages for user2
+    user2_messages = await test_topic.get_messages_by_user("user2")
+    assert len(user2_messages) == 1
+    assert user2_messages[0].userId == "user2"

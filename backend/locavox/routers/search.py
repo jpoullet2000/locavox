@@ -1,34 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import Optional
+from fastapi import APIRouter, Depends, Body
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-from ..services import auth_service
-from ..models.user import User
-from ..logger import setup_logger
-from ..topic_registry import get_topics
-from .. import config  # Import config directly
 
-# Set up logger for this module
+from ..models import Message
+from ..services.auth_service import get_current_user_optional
+from ..models.user import User
+from .. import config
+from ..logger import setup_logger
+
+# Create router
+router = APIRouter(tags=["search"])
 logger = setup_logger(__name__)
 
-router = APIRouter(
-    prefix="/query",
-    tags=["search"],
-    responses={404: {"description": "Not found"}},
-)
 
-# Get references to topics from a central store
-topics = get_topics()
+class SearchRequest(BaseModel):
+    """Request model for search queries"""
 
-
-class QueryRequest(BaseModel):
     query: str
-    use_llm: bool = config.USE_LLM_BY_DEFAULT  # Use config directly
+    use_llm: bool = False  # Allow client to request LLM enhancement
 
 
-@router.post("")
-async def query_topics(
-    request: QueryRequest,
-    current_user: Optional[User] = Depends(auth_service.get_current_user_optional),
+class SearchResponse(BaseModel):
+    """Response model for search results"""
+
+    query: str
+    messages: Optional[List[Dict[str, Any]]] = None
+    topic_results: Optional[List[Dict[str, Any]]] = None
+    insights: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/query", response_model=SearchResponse)
+async def search_topics(
+    request: SearchRequest = Body(...),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Enhanced search across topics with LLM-powered ranking and insights"""
     query = request.query
@@ -36,37 +41,46 @@ async def query_topics(
     # Use LLM only if explicitly requested and API key is available
     use_llm = request.use_llm and config.OPENAI_API_KEY
 
+    # Safely access current_user.id
+    user_id = "anonymous"
+    if current_user is not None:
+        user_id = current_user.id
+
     # Log the search request
-    logger.info(
-        f"Search query: '{query}' (use_llm: {use_llm}, user: {current_user.id if current_user else 'anonymous'})"
-    )
+    logger.info(f"Search query: '{query}' (use_llm: {use_llm}, user: {user_id})")
 
-    if not use_llm:
-        # Use search_messages for relevant results without LLM
-        for topic_name, topic in topics.items():
-            # Use each topic's search_messages method to get relevant results
-            relevant_messages = await topic.search_messages(query)
+    try:
+        # Attempt LLM-enhanced search if requested
+        if use_llm:
+            try:
+                from ..llm_search import search_with_llm
 
-            if relevant_messages:
-                return {
-                    "topic": {"name": topic.name, "description": topic.description},
-                    "messages": relevant_messages,
-                    "query": query,
-                }
-        return {"query": query, "topic": None, "messages": []}
-    else:
-        # Only import SmartSearch when LLM is requested and API key is available
-        try:
-            # Conditional import to avoid initialization issues
-            from ..llm_search import SmartSearch
+                results = await search_with_llm(query)
+                return results
+            except ImportError:
+                logger.warning("LLM search functionality not available")
+                use_llm = False
+            except Exception as e:
+                logger.error(f"Error with LLM search: {str(e)}")
+                use_llm = False
 
-            results = await SmartSearch.search_all_topics(query, topics)
-            return results
-        except ImportError as e:
-            logger.error(f"Failed to import SmartSearch module: {e}")
-            # Fall back to simple search on error
-            return await query_topics(QueryRequest(query=query, use_llm=False))
-        except Exception as e:
-            logger.error(f"LLM search failed: {e}")
-            # Fall back to simple search on error
-            return await query_topics(QueryRequest(query=query, use_llm=False))
+        # Fall back to regular search
+        if not use_llm:
+            from ..topic_registry import topics
+
+            all_results = []
+            for topic_name, topic in topics.items():
+                messages = await topic.search_messages(query)
+                if messages:
+                    all_results.append(
+                        {
+                            "topic": topic_name,
+                            "messages": [msg.model_dump() for msg in messages],
+                        }
+                    )
+
+            return SearchResponse(query=query, topic_results=all_results)
+
+    except Exception as e:
+        logger.error(f"Error during search: {str(e)}")
+        return SearchResponse(query=query, error=f"Search failed: {str(e)}")

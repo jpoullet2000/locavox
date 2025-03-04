@@ -1,16 +1,18 @@
 import pytest
 import time
-import asyncio
 from fastapi.testclient import TestClient
-from locavox.main import app, topics  # Import topics directly from main
+from locavox.main import app
+
+# Import topics from topic_registry - use a different name to avoid shadowing
+from locavox.topic_registry import topics as topic_registry
 from locavox.models import BaseTopic, Message
 import uuid
 from datetime import datetime, timedelta
 from locavox.logger import setup_logger
-import traceback  # Add traceback for detailed error reporting
+import traceback
 
 # Set up logger for tests with higher verbosity
-logger = setup_logger("tests.optimized_queries", verbose=True)
+logger = setup_logger("tests.optimized_queries")
 
 # Create a test client
 client = TestClient(app)
@@ -24,22 +26,20 @@ async def create_test_data():
     """Create test data for user query tests with enhanced error reporting"""
     try:
         # Log the status of topics at the beginning
-        logger.info(f"Topics before clearing: {list(topics.keys())}")
+        logger.info(f"Topics before clearing: {list(topic_registry.keys())}")
 
         # Clear existing topics and create a test topic
-        topics.clear()
+        topic_registry.clear()
         logger.info("Cleared topics")
 
-        test_topic = BaseTopic("performance_test")
-        topics["performance_test"] = test_topic
+        test_topic = BaseTopic(name="performance_test")
+        topic_registry["performance_test"] = test_topic
         logger.info("Created performance_test topic")
 
-        # Ensure initialization is complete before proceeding
-        await test_topic.initialize()
-        logger.info("Initialized performance_test topic")
+        logger.info("BaseTopic doesn't require initialization")
 
         # Verify the topic was added to topics dictionary
-        if "performance_test" not in topics:
+        if "performance_test" not in topic_registry:
             logger.error("Failed to add performance_test to topics dictionary")
             return False
 
@@ -96,16 +96,16 @@ async def verify_test_data_exists():
     """Verify test data exists, and create it if it doesn't"""
     try:
         logger.info("Starting verification of test data")
-        logger.info(f"Current topics: {list(topics.keys())}")
+        logger.info(f"Current topics: {list(topic_registry.keys())}")
 
         # Check if performance_test topic exists
-        if "performance_test" not in topics:
+        if "performance_test" not in topic_registry:
             logger.warning("Test topic not found - creating test data now")
             success = await create_test_data()
             return success
 
-        # Get the topic
-        topic = topics.get("performance_test")
+        # Get the topic - use topic_registry instead of topics
+        topic = topic_registry.get("performance_test")
         if not topic:
             logger.error("Topic exists in keys but returned None when accessed")
             # Recreate it
@@ -139,7 +139,7 @@ async def verify_test_data_exists():
         return False
 
 
-# Created a separate setup function for tests
+# Create a separate setup function for tests
 async def setup_for_test():
     """Setup function to be used at the start of each test"""
     try:
@@ -149,7 +149,7 @@ async def setup_for_test():
         if not success:
             logger.error("Failed to verify or create test data")
             # Try once more with a complete recreation
-            topics.clear()
+            topic_registry.clear()  # Use topic_registry consistently
             success = await create_test_data()
         return success
     except Exception as e:
@@ -166,10 +166,11 @@ async def test_efficient_user_query_implementation():
     if not success:
         # Try alternative approach to create data if setup fails
         logger.warning("Direct test data setup failed. Trying alternative approach...")
-        topics.clear()
-        topics["performance_test"] = BaseTopic("performance_test")
+        # Use topic_registry consistently - no reimport needed
+        topic_registry.clear()
+        topic_registry["performance_test"] = BaseTopic(name="performance_test")
         for i in range(NUM_TEST_MESSAGES):
-            await topics["performance_test"].add_message(
+            await topic_registry["performance_test"].add_message(
                 Message(
                     id=str(uuid.uuid4()),
                     userId="user1",
@@ -182,7 +183,7 @@ async def test_efficient_user_query_implementation():
     user_id = "user1"
 
     # Verify data before proceeding - if we can't verify, skip the test
-    topic = topics.get("performance_test")
+    topic = topic_registry.get("performance_test")  # Use topic_registry consistently
     if not topic:
         pytest.skip("Could not create test topic")
 
@@ -248,7 +249,7 @@ async def test_compare_query_approaches():
     start_time = time.time()
     # Get messages directly from the topic (simulating the old approach)
     messages = []
-    topic = topics["performance_test"]
+    topic = topic_registry["performance_test"]  # Use topic_registry consistently
     topic_messages = await topic.get_messages(1000)
     user_messages = [msg for msg in topic_messages if msg.userId == user_id]
     messages.extend(user_messages)
@@ -271,5 +272,6 @@ async def test_compare_query_approaches():
 async def cleanup_after_tests():
     """Clean up after all tests in this module"""
     yield
-    topics.clear()
+    # No need to import again, use the module-level topic_registry
+    topic_registry.clear()
     logger.info("Cleaned up test topics")
