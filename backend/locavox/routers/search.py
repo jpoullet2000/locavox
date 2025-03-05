@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Body
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
-from ..models import Message
 from ..services.auth_service import get_current_user_optional
 from ..models.user import User
 from .. import config

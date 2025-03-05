@@ -2,7 +2,7 @@ import pytest
 import sys
 import os
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch
 from fastapi import HTTPException
 
 # Add the parent directory to the path so we can import from locavox
@@ -105,13 +105,13 @@ class TestAuthService:
         expires_delta = timedelta(minutes=15)
 
         # Record current time before token creation - use timezone-aware datetime
-        now_before = datetime.now(timezone.utc)
+        _ = datetime.now(timezone.utc)
 
         # Act
         token = create_access_token(test_data, expires_delta)
 
         # Record time after token creation
-        now_after = datetime.now(timezone.utc)
+        _ = datetime.now(timezone.utc)
 
         # Assert
         assert token is not None

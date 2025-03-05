@@ -68,7 +68,7 @@ def main():
 
     # Decode an existing token if provided
     if args.decode:
-        print(f"=== Decoding Provided Token ===")
+        print("=== Decoding Provided Token ===")
         payload, error = decode_token(args.decode)
         if payload:
             print("Token is valid with payload:")
@@ -95,13 +95,13 @@ def main():
 
     # Provide ready-to-use export command
     print("=== Usage Examples ===")
-    print(f"# Export as environment variable:")
+    print("# Export as environment variable:")
     print(f"export BEARER_TOKEN='{token}'")
     print("")
-    print(f"# For use in create_topics.sh:")
+    print("# For use in create_topics.sh:")
     print(f"BEARER_TOKEN='{token}'")
     print("")
-    print(f"# For curl:")
+    print("# For curl:")
     print(f"curl -H 'Authorization: Bearer {token}' http://localhost:8000/topics/")
 
 

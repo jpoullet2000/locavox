@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 from locavox.main import app
 from locavox.logger import setup_logger
-from locavox.models import BaseTopic  # Add import for BaseTopic
 
 logger = setup_logger("tests.api")
 client = TestClient(app)
@@ -132,7 +131,7 @@ def test_query_topics_with_llm(mock_openai_alt):
         "/topics/test_topic/messages",
         json={"userId": "test_user", "content": "Test message for LLM query"},
     )
-    message_id = response.json()["id"]
+    _ = response.json()["id"]  # Save the message ID
 
     # Set up test configuration - temporarily enable LLM features
     from locavox import config

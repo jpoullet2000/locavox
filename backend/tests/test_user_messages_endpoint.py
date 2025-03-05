@@ -6,9 +6,6 @@ from locavox.main import app
 from locavox.models import Message, BaseTopic
 from locavox.logger import setup_logger
 
-# Import the topic registry directly instead of from main
-from locavox.topic_registry import topics
-
 # Set up logger for tests
 logger = setup_logger("tests.user_messages")
 

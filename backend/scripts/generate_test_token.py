@@ -8,7 +8,6 @@ python backend/scripts/generate_test_token.py --user-id admin-123 --username adm
 """
 import sys
 import os
-import asyncio
 from datetime import timedelta
 import argparse
 
@@ -16,8 +15,6 @@ import argparse
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from locavox.services.auth_service import create_access_token
-from locavox.models.user import User
-from locavox import config
 
 def create_test_token(user_id, username, email, is_admin=False, expire_days=30):
     """Create a JWT token for testing"""

@@ -100,7 +100,7 @@ def mock_openai():
 
     # Conditionally add patches for modules that might not exist
     try:
-        import locavox.llm_search
+        import locavox.llm_search  # noqa: F401
 
         patches["locavox.llm_search.client"] = mock_client
         patches["locavox.llm_search.async_client"] = mock_client
@@ -144,7 +144,7 @@ def mock_openai_alt():
         with patch("openai.AsyncOpenAI", return_value=mock_client):
             # Conditionally patch LLM search if it exists
             try:
-                import locavox.llm_search
+                import locavox.llm_search  # noqa: F401
 
                 with patch("locavox.llm_search.client", mock_client):
                     with patch("locavox.llm_search.async_client", mock_client):
@@ -160,7 +160,7 @@ def mock_embedding_generator():
     """Mock the embedding generator to return consistent test embeddings"""
     # Only mock if the module exists
     try:
-        from locavox.embeddings import EmbeddingGenerator
+        from locavox.embeddings import EmbeddingGenerator  # noqa: F401
 
         with patch("locavox.embeddings.EmbeddingGenerator.generate") as mock_generate:
             # Return a small consistent embedding for tests

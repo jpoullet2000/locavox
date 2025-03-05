@@ -1,8 +1,6 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
-from typing import List, Optional, Dict, Any
-from datetime import datetime
+from fastapi import APIRouter, Depends, Query
+from typing import Optional
 from ..models.user import User
-from ..models import Message
 from ..services.auth_service import get_current_user_optional
 from ..topic_registry import topics
 from ..logger import setup_logger

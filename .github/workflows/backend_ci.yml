@@ -39,5 +39,5 @@ jobs:
       - name: Run linting
         working-directory: ./backend
         run: |
-          poetry run flake8
-          poetry run black --check .
+          poetry run ruff check .
+          poetry run ruff format --check .

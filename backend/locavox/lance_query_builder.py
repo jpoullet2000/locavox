@@ -1,8 +1,6 @@
 import lance
 import os
-from typing import Dict, List, Any, Optional, Union
-import pandas as pa
-import pyarrow as pa
+from typing import List, Any
 from locavox.logger import setup_logger
 import re
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Path, Query, status
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Optional
 from pydantic import BaseModel
 from ..db.topics import (
     get_topics,

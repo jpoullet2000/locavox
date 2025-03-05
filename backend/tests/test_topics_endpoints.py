@@ -1,10 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
-from fastapi import FastAPI, Depends
-import httpx
 from locavox.main import app  # Updated import path
 from locavox.services import message_service, auth_service  # Updated import path
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, MagicMock
 from locavox.models.user import User
 import logging
 

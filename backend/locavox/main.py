@@ -1,8 +1,6 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from .routers import topics, users, auth, search
@@ -22,7 +20,7 @@ load_dotenv(dotenv_path=dot_env_file)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI startup and shutdown events"""
     # Startup
-    topics = get_topics()
+    _ = get_topics()
 
     # Check OpenAI API key status at startup
     if config.OPENAI_API_KEY:

@@ -1,6 +1,7 @@
 """Helper functions for configuration management, especially for testing"""
 
 from typing import Optional
+from . import config
 from .config import DEFAULT_MESSAGE_LIMIT
 import logging
 

@@ -1,4 +1,4 @@
-from typing import Dict, List, Union, Any
+from typing import Dict, List, Union
 import lancedb
 import os
 import pyarrow as pa

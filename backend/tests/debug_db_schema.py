@@ -5,14 +5,14 @@ import sys
 import lance
 import json
 from typing import List, Dict, Any
+from locavox import config
+from locavox.logger import setup_logger
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from locavox import config
-from locavox.logger import setup_logger
 
 logger = setup_logger("debug_db")
 
@@ -64,7 +64,7 @@ def examine_topic_schema(topic_name: str) -> Dict[str, Any]:
                 if "metadata" in record and isinstance(record["metadata"], str):
                     try:
                         record["metadata"] = json.loads(record["metadata"])
-                    except:
+                    except json.JSONDecodeError:
                         pass
                 sample_data.append(record)
             result["sample_data"] = sample_data
@@ -111,21 +111,21 @@ def main():
 
             # Test 1: Standard quoted format
             try:
-                result1 = ds.to_table(filter="\"userId\" = 'test'", limit=1)
+                _ = ds.to_table(filter="\"userId\" = 'test'", limit=1)
                 logger.info("Query 1 succeeded with format: \"userId\" = 'test'")
             except Exception as e1:
                 logger.error(f"Query 1 failed: {e1}")
 
             # Test 2: Alternative quote format
             try:
-                result2 = ds.to_table(filter='userId = "test"', limit=1)
+                _ = ds.to_table(filter='userId = "test"', limit=1)
                 logger.info('Query 2 succeeded with format: userId = "test"')
             except Exception as e2:
                 logger.error(f"Query 2 failed: {e2}")
 
             # Test 3: Backtick format
             try:
-                result3 = ds.to_table(filter='`userId` = "test"', limit=1)
+                _ = ds.to_table(filter='`userId` = "test"', limit=1)
                 logger.info('Query 3 succeeded with format: `userId` = "test"')
             except Exception as e3:
                 logger.error(f"Query 3 failed: {e3}")
