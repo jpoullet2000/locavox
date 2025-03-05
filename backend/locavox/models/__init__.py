@@ -1,17 +1,30 @@
 # This file makes the directory a proper Python package
-# Import common models here so they can be imported from ..models directly
 
-from .message import Message
-from .topic import BaseTopic
-from .user import User, UserCreate
-from .specialized_topics import EventsTopic, MarketplaceTopic, DiscussionTopic
+# Import SQL model components
+from .sql.base import BaseModel, Base
+from .sql.user import User
+from .sql.user_address import UserAddress
 
+# Import Pydantic schemas
+from .schemas.user import (
+    UserBase,
+    UserCreate,
+    UserResponse,
+    UserUpdate,
+    Token,
+    TokenData,
+)
+
+# Export commonly used models
 __all__ = [
-    "Message",
-    "BaseTopic",
+    "Base",
+    "BaseModel",
     "User",
+    "UserAddress",
+    "UserBase",
     "UserCreate",
-    "EventsTopic",
-    "MarketplaceTopic",
-    "DiscussionTopic",
+    "UserResponse",
+    "UserUpdate",
+    "Token",
+    "TokenData",
 ]

@@ -9,9 +9,9 @@ from ..db.topics import (
     delete_topic,
 )
 from ..services.auth_service import get_current_user
-from ..models.user import User
-from ..models.topic import TopicCreate, TopicUpdate
-from ..models import Message, BaseTopic
+from ..models.schemas.user import User
+from ..models.schemas.topic import TopicCreate, TopicUpdate
+from ..models.schemas import Message, BaseTopic
 from ..services import message_service, auth_service
 from ..logger import setup_logger
 import uuid

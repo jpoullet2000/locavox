@@ -1,7 +1,7 @@
 import datetime
 from typing import List, Optional
 import uuid
-from ..models.topic import Topic, TopicCreate, TopicUpdate
+from ..models.schemas.topic import Topic, TopicCreate, TopicUpdate
 
 # Mock database - replace with actual database in production
 topics_db = [

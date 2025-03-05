@@ -3,6 +3,7 @@ Configuration module for Locavox backend
 """
 
 import os
+import importlib.util
 from enum import Enum
 import logging
 from typing import Dict, Any
@@ -20,9 +21,38 @@ except ImportError:
 # Set up basic logger (will be replaced by the centralized logger later if available)
 logger = logging.getLogger(__name__)
 
+
+# Environment configuration
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+DEBUG = ENVIRONMENT in ("development", "testing")
+TESTING = ENVIRONMENT == "testing"
+
+
 # Database configuration
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data")
 DATABASE_PATH = os.getenv("LOCAVOX_DATABASE_PATH", DEFAULT_DB_PATH)
+
+# Check for available database drivers
+has_asyncpg = importlib.util.find_spec("asyncpg") is not None
+has_aiosqlite = importlib.util.find_spec("aiosqlite") is not None
+
+DATABASE_RECREATE_TABLES = (
+    os.getenv("DATABASE_RECREATE_TABLES", "False").lower() == "true"
+)
+
+# Set database URL based on available drivers
+db_url_env = os.getenv("DATABASE_URL")
+if db_url_env:
+    DATABASE_URL = db_url_env
+elif has_asyncpg:
+    DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/locavox"
+elif has_aiosqlite:
+    DATABASE_URL = "sqlite+aiosqlite:///./locavox.db"
+else:
+    DATABASE_URL = "sqlite+aiosqlite:///./locavox.db"
+    logger.warning(
+        "No async database drivers found. Please install asyncpg or aiosqlite."
+    )
 
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -62,6 +92,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 # Message limits
 DEFAULT_MESSAGE_LIMIT = int(os.getenv("DEFAULT_MESSAGE_LIMIT", "1000"))
 
+# Geocoding settings
+GEOCODING_API_KEY = os.getenv("GEOCODING_API_KEY", "")
+GEOCODING_PROVIDER = os.getenv("GEOCODING_PROVIDER", "nominatim")
+
+# API settings
+API_PREFIX = "/api/v1"
+PROJECT_NAME = "Locavox"
+
 
 # Model selection
 class EmbeddingModel(str, Enum):
@@ -86,8 +124,16 @@ except ImportError:
 
 # Create a settings object to provide access to all config variables
 settings = {
+    # Application settings
+    "DEBUG": DEBUG,
+    "ENVIRONMENT": ENVIRONMENT,
+    "TESTING": TESTING,
+    "DATABASE_RECREATE_TABLES": DATABASE_RECREATE_TABLES,
     # Database settings
     "DATABASE_PATH": DATABASE_PATH,
+    "DATABASE_URL": DATABASE_URL,
+    "HAS_ASYNCPG": has_asyncpg,
+    "HAS_AIOSQLITE": has_aiosqlite,
     # OpenAI settings
     "OPENAI_API_KEY": OPENAI_API_KEY,
     "OPENAI_EMBEDDING_MODEL": OPENAI_EMBEDDING_MODEL,
@@ -107,6 +153,12 @@ settings = {
     "DEFAULT_MESSAGE_LIMIT": DEFAULT_MESSAGE_LIMIT,
     # Model settings
     "EMBEDDING_MODEL": EMBEDDING_MODEL,
+    # API settings
+    "API_PREFIX": API_PREFIX,
+    "PROJECT_NAME": PROJECT_NAME,
+    # Geocoding settings
+    "GEOCODING_API_KEY": GEOCODING_API_KEY,
+    "GEOCODING_PROVIDER": GEOCODING_PROVIDER,
 }
 
 

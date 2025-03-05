@@ -1,6 +1,135 @@
-# locavox
+# Locavox
 Locavox is a smart framework that connects local communities by routing questions and needs to the right topic, sparking seamless interactions with the help of AI
 
+## Installation and Setup
+
+### Prerequisites
+- Python 3.11 or higher
+- pip (Python package installer)
+- poetry (recommended)
+- PostgreSQL (recommended) or SQLite
+
+### Installing Dependencies
+
+1. Clone the repository
+   ```bash
+   git clone https://github.com/jpoullet2000/locavox.git
+   cd locavox
+   ```
+
+2. Create a virtual environment (optional but recommended)
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies
+   ```bash
+   poetry install
+   ```
+
+4. For PostgreSQL support (recommended for production)
+   ```bash
+   pip install asyncpg
+   ```
+
+   or with `poetry`
+   ```bash
+   poetry install --with database
+   ```
+
+   You might need to install system-level dependencies:
+   - Ubuntu/Debian: `sudo apt-get install libpq-dev`
+   - RHEL/CentOS: `sudo dnf install postgresql-devel`
+   - macOS (with Homebrew): `brew install postgresql`
+
+5. For SQLite support (development/testing)
+   ```bash
+   pip install aiosqlite
+   ```
+
+### Configuration
+
+1. Create a `.env` file in the project root by copying the example
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit the `.env` file to set your configuration values:
+   - Set the `DATABASE_URL` for your database connection
+   - Configure other settings as needed
+
+## Running the Application
+
+1. Initialize the database
+   ```bash
+   python -m backend.locavox.cli init-db
+   ```
+
+2. Start the server
+   ```bash
+   uvicorn backend.locavox.main:app --reload
+   ```
+
+3. Access the application at http://localhost:8000
+
+## Docker Setup
+
+For a quick development setup with Docker:
+
+### Using Docker Compose
+
+1. Start PostgreSQL with Docker Compose:
+   ```bash
+   docker-compose up -d postgres
+   ```
+
+2. This will create two databases:
+   - `locavox` - Main development database
+   - `locavox_test` - Test database
+
+3. Configure your application to use the dockerized PostgreSQL:
+   ```bash
+   cp .env.docker .env
+   ```
+
+4. Access PostgreSQL:
+   ```bash
+   # Using psql client
+   psql -h localhost -p 5432 -U locavox_user -d locavox
+   # Password: locavox_pass
+   ```
+
+### Database Connection Details
+
+- **Main Database**:
+  - Host: `localhost` (or `postgres` from other containers)
+  - Port: `5432`
+  - Database name: `locavox`
+  - Username: `locavox_user`
+  - Password: `locavox_pass`
+  - Connection string: `postgresql+asyncpg://locavox_user:locavox_pass@localhost:5432/locavox`
+
+- **Test Database**:
+  - Database name: `locavox_test`
+  - Username: `locavox_test`
+  - Password: `locavox_test`
+  - Connection string: `postgresql+asyncpg://locavox_test:locavox_test@localhost:5432/locavox_test`
+
+## Development
+
+### Running Tests
+```bash
+pytest
+```
+
+### Code Structure
+- `backend/` - Backend application code
+  - `locavox/` - Main application package
+    - `models/` - Data models and schemas
+    - `services/` - Business logic
+    - `routers/` - API endpoints
+    - `utils/` - Utility functions and helpers
 
 ## Start the backend 
 

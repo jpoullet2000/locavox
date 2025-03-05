@@ -1,199 +1,142 @@
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from typing import Optional
-from datetime import datetime, timedelta, timezone
-from ..models.user import User, UserCreate
-from .. import config  # Import the config module directly
-import logging
 
-logger = logging.getLogger(__name__)
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+from locavox.models.sql.user import User
+from locavox.models.schemas.user import TokenData
+from locavox.database import get_db_session  # Change to get_db_session
+from locavox.utils.security import verify_password
+from locavox import config
 
-# Try to import 'jose', provide helpful error if not available
-try:
-    from jose import JWTError, jwt
-except ImportError:
-    jwt = None
-    JWTError = Exception
-    logger.error(
-        "Missing dependency: 'python-jose' not found. Please install it using: "
-        "pip install 'python-jose[cryptography]'"
+# OAuth2 scheme for token authentication
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+
+
+async def authenticate_user(
+    db: AsyncSession, email_or_username: str, password: str
+) -> Optional[User]:
+    """
+    Authenticate a user by email/username and password
+
+    Args:
+        db: Database session
+        email_or_username: Email address or username
+        password: Plain text password
+
+    Returns:
+        User object if authentication is successful, None otherwise
+    """
+    # Try to find user by email or username
+    stmt = select(User).where(
+        (User.email == email_or_username) | (User.username == email_or_username)
     )
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    # If user not found or password doesn't match, return None
+    if not user or not verify_password(password, user.hashed_password):
+        return None
+
+    return user
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
-    Validate the token and return the current user.
-    Raises exception if token is invalid or missing.
+    Create JWT access token
+
+    Args:
+        data: Data to encode in the token
+        expires_delta: Token expiration time
+
+    Returns:
+        JWT token as string
     """
-    if jwt is None:
-        logger.error(
-            "JWT functionality is disabled because 'python-jose' is not installed"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT authentication is not available. Please contact the administrator.",
+    to_encode = data.copy()
+
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(
+            minutes=config.settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(
+        to_encode, config.settings.SECRET_KEY, algorithm=config.settings.ALGORITHM
+    )
+    return encoded_jwt
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db_session),  # Change to get_db_session
+) -> User:
+    """
+    Get current user from token
+
+    Args:
+        token: JWT token
+        db: Database session
+
+    Returns:
+        User object
+
+    Raises:
+        HTTPException: If token is invalid or user not found
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    if token is None:
-        raise credentials_exception
-
     try:
-        # Decode the JWT token using config variables directly
-        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        # Decode and validate the token
+        payload = jwt.decode(
+            token, config.settings.SECRET_KEY, algorithms=[config.settings.ALGORITHM]
+        )
         user_id: str = payload.get("sub")
 
         if user_id is None:
             raise credentials_exception
 
-        # Get the user from the database
-        user = await get_user_by_id(user_id)
-
-        if user is None:
-            raise credentials_exception
-
-        return user
+        token_data = TokenData(sub=user_id)
     except JWTError:
         raise credentials_exception
 
+    # Get the user from the database
+    stmt = select(User).where(User.id == token_data.sub)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise credentials_exception
+
+    return user
+
 
 async def get_current_user_optional(
-    token: str = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db_session),  # Change to get_db_session
 ) -> Optional[User]:
     """
-    Validate the token and return the current user, or None if no token provided.
-    Does not raise exception if token is missing, but still validates if provided.
+    Get current user from token, but don't require authentication
+
+    Args:
+        token: JWT token (optional)
+        db: Database session
+
+    Returns:
+        User object or None if no valid token provided
     """
     if token is None:
         return None
 
     try:
-        if jwt is None:
-            logger.warning(
-                "JWT functionality is disabled because 'python-jose' is not installed"
-            )
-            return None
-
-        # Decode the JWT token
-        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
-        user_id: str = payload.get("sub")
-
-        if user_id is None:
-            return None
-
-        # Get the user from the database
-        user = await get_user_by_id(user_id)
-
-        # Important: Make sure we return None explicitly if no user found
-        if user is None:
-            return None
-
-        return user
-    except JWTError as e:
-        logger.warning(f"JWT error in optional auth: {e}")
+        return await get_current_user(token, db)
+    except HTTPException:
         return None
-    except Exception as e:
-        logger.error(f"Unexpected error in optional auth: {e}")
-        return None
-
-
-async def authenticate_user(username: str, password: str) -> Optional[User]:
-    """
-    Authenticate a user with username and password
-    For now, returns a dummy user if username matches password
-    """
-    if not username or not password:
-        return None
-    if username == "admin" and password == "admin":
-        return User(
-            id="admin",
-            username="admin",
-            email="admin@example.com",
-            full_name="Admin User",
-            is_active=True,
-            is_admin=True,
-        )
-
-    if username == password:  # Simple test authentication
-        return User(
-            id=f"user-{username}",
-            username=username,
-            email=f"{username}@example.com",
-            is_active=True,
-        )
-    return None
-
-
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """
-    Create a JWT token with the given data and expiration
-    """
-    if jwt is None:
-        logger.error(
-            "JWT functionality is disabled because 'python-jose' is not installed"
-        )
-        return "dummy-token"  # Return a dummy token if jose is not installed
-
-    to_encode = data.copy()
-
-    # Use timezone-aware datetime objects (recommended approach)
-    now = datetime.now(timezone.utc)
-    expire = now + (
-        expires_delta or timedelta(minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
-    to_encode.update({"exp": expire.timestamp()})
-
-    encoded_jwt = jwt.encode(to_encode, config.SECRET_KEY, algorithm=config.ALGORITHM)
-    return encoded_jwt
-
-
-async def register_user(user_data: UserCreate) -> User:
-    """
-    Register a new user
-    For now, returns a dummy user with the provided data
-    """
-    # In a real app, you would:
-    # 1. Check if the username/email is already taken
-    # 2. Hash the password
-    # 3. Store the user in the database
-    # 4. Return the created user
-
-    new_user = User(
-        id=f"user-{user_data.username}",
-        username=user_data.username,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        is_active=True,
-    )
-    return new_user
-
-
-async def get_user_by_id(user_id: str) -> Optional[User]:
-    """
-    Get a user from the database by ID
-    For now, returns a dummy user if the ID starts with 'user-'
-    """
-    if user_id.startswith("user-"):
-        username = user_id[5:]
-        if username == "admin":
-            return User(
-                id="admin",
-                username="admin",
-                email="admin@example.com",
-                full_name="Admin User",
-                is_active=True,
-                is_admin=True,
-            )
-        return User(
-            id=user_id,
-            username=username,
-            email=f"{username}@example.com",
-            is_active=True,
-        )
-    return None

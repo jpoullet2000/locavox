@@ -4,7 +4,7 @@ This allows different parts of the app to access the same topics.
 """
 
 from typing import Dict
-from .models import BaseTopic
+from .models.schemas import BaseTopic
 
 # Dictionary to store all topics by name
 topics = {}

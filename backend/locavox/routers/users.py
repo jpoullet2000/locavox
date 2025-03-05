@@ -1,9 +1,14 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import Optional
-from ..models.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..models.sql.user import User as UserModel  # Import SQLAlchemy model
+from ..models.schemas.user import UserCreate, UserResponse  # Import Pydantic schemas
 from ..services.auth_service import get_current_user_optional
 from ..topic_registry import topics
 from ..logger import setup_logger
+from locavox.database import get_db_session  # Change to get_db_session
+from locavox.services.user_service import create_user, UserExistsError
 
 # Create logger for this module
 logger = setup_logger(__name__)
@@ -20,7 +25,7 @@ async def get_user_messages(
     user_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: Optional[UserModel] = Depends(get_current_user_optional),
 ):
     """
     Get messages posted by a specific user across all topics.
@@ -78,3 +83,18 @@ async def get_user_messages(
         "limit": limit,
         "messages": paginated_messages,
     }
+
+
+@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_new_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db_session),  # Change to get_db_session
+):
+    """
+    Create a new user
+    """
+    try:
+        user = await create_user(db, user_data)
+        return user
+    except UserExistsError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

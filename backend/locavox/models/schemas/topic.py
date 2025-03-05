@@ -3,7 +3,7 @@ from typing import Optional, List
 import datetime
 import uuid
 from .message import Message
-from ..logger import setup_logger
+from locavox.logger import setup_logger
 
 logger = setup_logger(__name__)
 
@@ -40,7 +40,7 @@ class Topic(TopicBase):
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class BaseTopic:

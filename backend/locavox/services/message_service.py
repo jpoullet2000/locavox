@@ -1,5 +1,5 @@
 from typing import Optional
-from ..models import Message  # Updated import
+from ..models.schemas import Message  # Updated import
 from ..db.database import get_db_connection
 import logging
 from ..config_helpers import get_message_limit

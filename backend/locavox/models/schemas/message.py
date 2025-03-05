@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Any
 from pydantic import BaseModel
 from datetime import datetime
+from .user_address import Coordinates
 
 
 class Message(BaseModel):
@@ -10,6 +11,8 @@ class Message(BaseModel):
     content: str
     userId: str
     timestamp: datetime
+    coordinates: Optional[Coordinates] = None
+    addressId: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -18,6 +21,8 @@ class MessageCreate(BaseModel):
 
     content: str
     userId: str
+    addressId: Optional[str] = None  # Reference to a user address
+    coordinates: Optional[Coordinates] = None  # Allow direct coordinates input
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -28,4 +33,6 @@ class MessageResponse(BaseModel):
     content: str
     userId: str
     timestamp: datetime
+    coordinates: Optional[Coordinates] = None
+    addressId: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
