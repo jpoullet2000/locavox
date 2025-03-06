@@ -46,8 +46,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Locavox API",
-    description="API for the Locavox community platform",
+    title="LocaVox API",
+    description="API for the LocaVox application",
     version="0.1.0",
     lifespan=lifespan,
 )

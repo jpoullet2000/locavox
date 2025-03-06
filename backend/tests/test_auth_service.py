@@ -17,7 +17,7 @@ from locavox.services.auth_service import (
     register_user,
     get_user_by_id,
 )
-from locavox.models.user import User, UserCreate
+from locavox.models.schemas.user import User, UserCreate
 from locavox import config
 
 # Import JWT libraries - these are used in tests even if not in the actual service
@@ -53,7 +53,7 @@ def test_token(mock_user):
         "sub": mock_user.id,
         "username": mock_user.username,
         "email": mock_user.email,
-        "is_admin": False,
+        "is_superuser": False,
     }
     token = create_access_token(data)
     return token
@@ -66,7 +66,7 @@ def admin_token():
         "sub": "user-admin",
         "username": "admin",
         "email": "admin@example.com",
-        "is_admin": True,
+        "is_superuser": True,
     }
     token = create_access_token(data)
     return token

@@ -174,3 +174,8 @@ cython_debug/
 tmp/
 data/
 public/
+locavox.db
+.lancedb/
+.ruff_cache/
+.ruff/
+.vscode/

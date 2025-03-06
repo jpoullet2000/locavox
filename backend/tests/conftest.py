@@ -2,43 +2,69 @@ import pytest
 import os
 import shutil
 import logging
-
-# import sys
+import asyncio
 from unittest.mock import patch, MagicMock
 from locavox import config
 from locavox.logger import setup_logger
 import tempfile
 from fastapi.testclient import TestClient
-from locavox.main import app
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from datetime import timedelta
+import sys
 
 # Add the parent directory to the path so we can import from locavox
-# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from locavox.main import app
+from locavox.database import get_db_session
+from locavox.models.sql.base import Base
+from locavox.models.sql.user import User
+from locavox.services.auth_service import create_access_token
+from locavox.utils.security import get_password_hash
+
+# Test database URL
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 # Configure test logger
 test_logger = setup_logger("tests", logging.DEBUG)
 
+# Create test engine
+test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
 
-def pytest_configure(config):
-    pytest.test_db_uri = "memory://test_db"
-
-    # Reduce noise in test output by setting higher log levels for some loggers
-    setup_logger("urllib3", logging.WARNING)
-    setup_logger("asyncio", logging.WARNING)
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for each test case."""
-    import asyncio
-
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Create test session factory
+TestSessionLocal = sessionmaker(
+    test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 
-@pytest.fixture(autouse=True)
-def setup_test_env():
-    """Setup test environment"""
+# Override the get_db_session dependency
+async def override_get_db_session():
+    async with TestSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+# Test client with overridden dependencies
+@pytest.fixture
+def client():
+    app.dependency_overrides[get_db_session] = override_get_db_session
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def setup_test_environment():
+    """Setup test environment
+
+    This fixture is run before each test to set up the test environment.
+    """
     # Use absolute path for temporary test database
     # This avoids relative path issues that can occur in different test environments
     test_db_path = tempfile.mkdtemp(prefix="locavox_test_")
@@ -48,13 +74,29 @@ def setup_test_env():
     # Set up clean environment for tests
     config.DATABASE_PATH = test_db_path
     config.USE_LLM_BY_DEFAULT = False  # Disable LLM for tests
-
+    config.settings.TESTING = True  # Make sure TESTING flag is set
+    config.settings.DATABASE_RECREATE_TABLES = True  # Force table recreation
+    breakpoint()
     test_logger.info(f"Using test database path: {test_db_path}")
     test_logger.info(f"Default message limit: {config.MAX_MESSAGES_PER_USER}")
 
     # Cleanup before test (should be fresh directory from tempfile)
     if not os.path.exists(test_db_path):
         os.makedirs(test_db_path)
+
+    # Import here to avoid circular imports
+    from locavox.database import init_db
+
+    # Initialize database tables
+    await init_db()
+    session = await override_get_db_session()
+    from sqlalchemy import text
+
+    result = await session.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table';")
+    )
+    tables = [row[0] for row in await result.fetchall()]
+    test_logger.info(f"Tables created in test DB: {tables}")
 
     yield
 
@@ -67,6 +109,86 @@ def setup_test_env():
     # Restore original settings
     config.DATABASE_PATH = original_db_path
     config.MAX_MESSAGES_PER_USER = original_max_msgs
+    session.close()
+
+
+# # Create test database and tables
+# @pytest.fixture(scope="session")
+# async def init_test_db():
+#     # Create tables
+#     async with test_engine.begin() as conn:
+#         await conn.run_sync(Base.metadata.create_all)
+
+#     yield
+
+#     # Drop tables
+#     async with test_engine.begin() as conn:
+#         await conn.run_sync(Base.metadata.drop_all)
+
+
+# Create a test user and return authentication token
+@pytest.fixture
+# async def test_user(init_test_db):
+async def test_user():
+    user_id = "test_user_id"
+
+    async with TestSessionLocal() as session:
+        # Check if user already exists
+        from sqlalchemy import select
+
+        result = await session.execute(select(User).where(User.id == user_id))
+        existing_user = result.scalar_one_or_none()
+
+        if existing_user is None:
+            # Create test user
+            user = User(
+                id=user_id,
+                email="test@example.com",
+                username="testuser",
+                hashed_password=get_password_hash("password123"),
+                is_active=True,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        else:
+            user = existing_user
+
+        # Create token
+        access_token = create_access_token(
+            data={"sub": user.id}, expires_delta=timedelta(minutes=30)
+        )
+
+        # Override the auth dependency
+        app.dependency_overrides[get_db_session] = override_get_db_session
+
+        yield {
+            "user": user,
+            "token": access_token,
+            "auth_header": {"Authorization": f"Bearer {access_token}"},
+        }
+
+
+# Setup and teardown the test database
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+def pytest_configure():
+    pytest.test_db_uri = "memory://test_db"
+
+    # Reduce noise in test output by setting higher log levels for some loggers
+    setup_logger("urllib3", logging.WARNING)
+    setup_logger("asyncio", logging.WARNING)
+
+    # Enable testing mode
+    config.settings.TESTING = True
+
+    # Enable database table recreation for tests
+    config.settings.DATABASE_RECREATE_TABLES = True
 
 
 @pytest.fixture
@@ -169,12 +291,6 @@ def mock_embedding_generator():
     except ImportError:
         # Module doesn't exist, return a simple mock
         yield MagicMock(return_value=[0.1] * 384)
-
-
-@pytest.fixture
-def client():
-    """Create a FastAPI test client"""
-    return TestClient(app)
 
 
 @pytest.fixture

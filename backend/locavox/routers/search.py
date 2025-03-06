@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from ..services.auth_service import get_current_user_optional
-from ..models.schemas.user import User
+from ..models.sql.user import User
 from .. import config
 from ..logger import setup_logger
 

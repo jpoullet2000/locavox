@@ -1,23 +1,27 @@
 from fastapi import APIRouter, HTTPException, Depends, Path, Query, status
 from typing import List, Dict, Optional
 from pydantic import BaseModel
-from ..db.topics import (
-    get_topics,
+from ..services.topics import (
+    get_topics as db_get_topics,
     create_topic,
-    get_topic_by_id,
     update_topic,
     delete_topic,
 )
+
+# Import the function from topic_registry directly
+from ..topic_registry import get_topic_by_id as registry_get_topic_by_id
 from ..services.auth_service import get_current_user
-from ..models.schemas.user import User
+from ..models.sql.user import User
 from ..models.schemas.topic import TopicCreate, TopicUpdate
-from ..models.schemas import Message, BaseTopic
+from ..models.schemas import Message, TopicBase
 from ..services import message_service, auth_service
 from ..logger import setup_logger
 import uuid
 from datetime import datetime
 from ..config_helpers import get_message_limit
 from ..topic_registry import get_topics as get_topic_registry
+from sqlalchemy.ext.asyncio import AsyncSession
+from locavox.database import get_db_session
 
 # Set up logger for this module
 logger = setup_logger(__name__)
@@ -71,7 +75,7 @@ async def read_topics(skip: int = 0, limit: int = 100):
 
     Returns a list of topic objects with full attributes instead of just names.
     """
-    topics = await get_topics(skip=skip, limit=limit)
+    topics = await db_get_topics(skip=skip, limit=limit)
 
     # Transform the topics into the expected response format
     formatted_topics = [
@@ -94,7 +98,7 @@ async def create_new_topic(
 ):
     """Create a new topic."""
     breakpoint()
-    if not current_user.is_admin:
+    if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Only admins can create topics")
 
     created_topic = await create_topic(topic)
@@ -110,7 +114,8 @@ async def create_new_topic(
 @router.get("/{topic_id}", response_model=TopicResponse)
 async def read_topic(topic_id: str):
     """Get a specific topic by ID."""
-    topic = await get_topic_by_id(topic_id)
+    # This should call the async function from db.topics
+    topic = await db_get_topics.get_topic_by_id(topic_id)
 
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -131,7 +136,7 @@ async def update_existing_topic(
     current_user: User = Depends(get_current_user),
 ):
     """Update a topic."""
-    if not current_user.is_admin:
+    if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Only admins can update topics")
 
     updated_topic = await update_topic(topic_id, topic_update)
@@ -153,7 +158,7 @@ async def delete_existing_topic(
     topic_id: str, current_user: User = Depends(get_current_user)
 ):
     """Delete a topic."""
-    if not current_user.is_admin:
+    if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Only admins can delete topics")
 
     success = await delete_topic(topic_id)
@@ -175,99 +180,95 @@ async def list_topic_registry():
     return {name: topic.__class__.__name__ for name, topic in topic_registry.items()}
 
 
-@router.get("/{topic_name}/messages")
-async def list_messages(topic_name: str):
-    """Get all messages in a topic"""
-    if topic_name not in topic_registry:
-        raise HTTPException(status_code=404, detail="Topic not found")
-    messages = await topic_registry[topic_name].get_messages(10)
-    return {"messages": [msg.model_dump() for msg in messages]}
-
-
-@router.post("/{topic_name}/messages")
-async def add_message(
-    topic_name: str,
-    request: MessageRequest,
-    test_limit: Optional[int] = Query(
-        None, description="Override message limit for testing"
-    ),
+@router.get("/{topic_id}/messages", response_model=List[dict])
+async def get_topic_messages(
+    topic_id: str = Path(..., description="The ID of the topic"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     current_user: Optional[User] = Depends(auth_service.get_current_user_optional),
 ):
-    """Add a message to a topic with message limit enforcement"""
-    user_id = request.userId
-    logger.debug(
-        f"Received message request for topic: {topic_name} from user: {user_id}"
-    )
+    """
+    Get messages for a specific topic.
 
-    # Verify user permissions if authenticated
-    if current_user is not None and current_user.id != user_id:
-        logger.warning(f"User {current_user.id} attempted to post as {user_id}")
-        raise HTTPException(
-            status_code=403, detail="Cannot post messages as another user"
-        )
+    Results are returned in reverse chronological order (newest first).
+    """
+    logger.info(f"Getting messages for topic {topic_id}")
 
-    # Check if user has reached message limit
+    # Use the non-async function from topic_registry
+    topic = registry_get_topic_by_id(topic_id)
+
+    if not topic:
+        logger.warning(f"Topic with ID {topic_id} not found")
+        raise HTTPException(status_code=404, detail="Topic not found")
+
     try:
-        # Find out actual message count - pass the test limit
-        from ..services.message_service import count_user_messages
-
-        user_message_count = await count_user_messages(user_id, test_limit)
-
-        # Use test_limit if provided, otherwise get from config
-        current_limit = test_limit if test_limit is not None else get_message_limit()
-
-        # Add debug logging
-        logger.debug(
-            f"Using message limit: {current_limit} (test override: {test_limit is not None})"
+        messages = await topic.get_messages(
+            skip=skip, limit=limit, current_user=current_user
         )
-
-        logger.info(
-            f"User {user_id} has {user_message_count} messages (limit: {current_limit})"
+        return messages
+    except AttributeError as e:
+        logger.error(f"Error getting messages from topic {topic_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The topic does not support retrieving messages",
         )
-
-        # Strictly enforce limit
-        if user_message_count >= current_limit:
-            logger.warning(
-                f"REJECTED: User {user_id} has reached the message limit of {current_limit}"
-            )
-
-            # Ensure we raise the exception here to prevent further processing
-            raise HTTPException(
-                status_code=429,  # Too Many Requests
-                detail=f"User has reached the maximum limit of {current_limit} messages",
-            )
-    except HTTPException:
-        # Re-raise HTTPException - this is important to make sure it propagates
-        raise
     except Exception as e:
-        # Log other errors but don't block the message
-        logger.error(f"Error checking message count for user {user_id}: {e}")
+        logger.error(
+            f"Unexpected error getting messages from topic {topic_id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve messages: {str(e)}",
+        )
 
-    # Create topic if it doesn't exist
-    if topic_name not in topic_registry:
-        topic_registry[topic_name] = BaseTopic(topic_name)
-        logger.debug(f"Created new topic: {topic_name}")
 
-    # Handle None metadata by defaulting to empty dict
-    metadata = request.metadata if request.metadata is not None else {}
+@router.post("/{topic_id}/messages", status_code=status.HTTP_201_CREATED)
+async def create_topic_message(
+    message: dict,
+    topic_id: str = Path(..., description="The ID of the topic"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Post a new message to a topic.
 
-    message = Message(
-        id=str(uuid.uuid4()),
-        content=request.content,
-        userId=user_id,
-        timestamp=datetime.now(),
-        metadata=metadata,
-    )
+    This endpoint requires authentication.
+    """
+    logger.info(f"Creating message in topic {topic_id}")
 
-    await topic_registry[topic_name].add_message(message)
-    return message
+    # Use the non-async function from topic_registry
+    topic = registry_get_topic_by_id(topic_id)
+
+    if not topic:
+        logger.warning(f"Topic with ID {topic_id} not found")
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Add the user ID to the message
+    message["user_id"] = current_user.id
+
+    try:
+        # Use the topic-specific creation logic
+        result = await topic.create_message(message, current_user)
+        return result
+    except AttributeError as e:
+        logger.error(f"Error creating message in topic {topic_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The topic does not support creating messages",
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error creating message in topic {topic_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create message: {str(e)}",
+        )
 
 
 @router.delete(
-    "/{topic_name}/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/{topic_id}/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 async def delete_message(
-    topic_name: str = Path(..., description="Name of the topic"),
+    topic_id: str = Path(..., description="The ID of the topic"),
     message_id: str = Path(..., description="ID of the message to delete"),
     current_user: User = Depends(auth_service.get_current_user),
 ):
@@ -277,12 +278,12 @@ async def delete_message(
     Only the message creator can delete their own messages.
     """
     # First, get the message to check ownership
-    message = await message_service.get_message(message_id, topic_name)
+    message = await message_service.get_message(message_id, topic_id)
 
     if not message:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Message {message_id} not found in topic {topic_name}",
+            detail=f"Message {message_id} not found in topic {topic_id}",
         )
 
     # Check if current user is the message creator
@@ -293,7 +294,7 @@ async def delete_message(
         )
 
     # Delete the message
-    deleted = await message_service.delete_message(message_id, topic_name)
+    deleted = await message_service.delete_message(message_id, topic_id)
 
     if not deleted:
         raise HTTPException(

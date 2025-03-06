@@ -18,10 +18,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from locavox.services.auth_service import create_access_token
 
 
-def create_test_token(user_id, username, email, is_admin=False, expire_days=30):
+def create_test_token(user_id, username, email, is_superuser=False, expire_days=30):
     """Create a JWT token for testing"""
     # Create payload data
-    data = {"sub": user_id, "username": username, "email": email, "is_admin": is_admin}
+    data = {
+        "sub": user_id,
+        "username": username,
+        "email": email,
+        "is_superuser": is_superuser,
+    }
 
     # Create token with specified expiration
     expires = timedelta(days=expire_days)
@@ -51,7 +56,7 @@ def main():
         user_id=args.user_id,
         username=args.username,
         email=args.email,
-        is_admin=args.admin,
+        is_superuser=args.admin,
         expire_days=args.days,
     )
 

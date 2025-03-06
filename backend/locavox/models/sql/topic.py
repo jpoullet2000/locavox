@@ -1,9 +1,9 @@
 from sqlalchemy import Column, String, Text, ForeignKey
 
-from .base import BaseModel
+from .base import SQLBaseModel
 
 
-class Topic(BaseModel):
+class Topic(SQLBaseModel):
     """SQLAlchemy model for topics"""
 
     __tablename__ = "topics"

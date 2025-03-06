@@ -20,7 +20,7 @@ def main():
         "sub": "admin-user-123",
         "username": "admin",
         "email": "admin@example.com",
-        "is_admin": True,
+        "is_superuser": True,
     }
 
     # Create token with 7 days expiration

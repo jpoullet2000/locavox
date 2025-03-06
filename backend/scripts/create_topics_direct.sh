@@ -16,7 +16,7 @@ admin_data = {
     'sub': 'admin-user-123',
     'username': 'admin',
     'email': 'admin@example.com',
-    'is_admin': True,
+    'is_superuser': True,
     'exp': datetime.datetime.now(timezone.utc) + timedelta(days=7)
 }
 

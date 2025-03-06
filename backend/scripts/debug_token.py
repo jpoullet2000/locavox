@@ -27,14 +27,14 @@ def print_config_info():
     print("")
 
 
-def create_token(is_admin=True, expires_days=7):
+def create_token(is_superuser=True, expires_days=7):
     """Create a JWT token directly using config values"""
     # Create data for a user
     user_data = {
-        "sub": "admin-user-123" if is_admin else "regular-user-456",
-        "username": "admin" if is_admin else "user",
-        "email": "admin@example.com" if is_admin else "user@example.com",
-        "is_admin": is_admin,
+        "sub": "admin-user-123" if is_superuser else "regular-user-456",
+        "username": "admin" if is_superuser else "user",
+        "email": "admin@example.com" if is_superuser else "user@example.com",
+        "is_superuser": is_superuser,
     }
 
     # Create expiration time using timezone-aware datetime
@@ -85,7 +85,7 @@ def main():
 
     # Generate a new token
     print(f"=== Generating New {'Admin' if args.admin else 'Regular'} Token ===")
-    token, data = create_token(is_admin=args.admin, expires_days=args.days)
+    token, data = create_token(is_superuser=args.admin, expires_days=args.days)
 
     # Print the token and information
     print(f"Token: {token}")

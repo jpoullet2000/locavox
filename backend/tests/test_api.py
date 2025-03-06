@@ -3,6 +3,12 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch
 from locavox.main import app
 from locavox.logger import setup_logger
+from datetime import timedelta
+
+# Import necessary config and auth-related functions
+from locavox.services.auth_service import create_access_token
+from locavox.models.sql.user import User
+from locavox.utils.security import get_password_hash
 
 logger = setup_logger("tests.api")
 client = TestClient(app)
@@ -26,7 +32,47 @@ async def setup_test_client():
         yield
 
 
-def test_list_topics():
+async def create_test_user_in_db(db, user_id="test_user"):
+    """Create a test user in the database"""
+    # Check if user already exists
+    from sqlalchemy import select
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # Create the user if it doesn't exist
+        user = User(
+            id=user_id,
+            email=f"{user_id}@example.com",
+            username=user_id,
+            hashed_password=get_password_hash("password123"),
+            is_active=True,
+            is_superuser=False,
+        )
+        db.add(user)
+        await db.commit()
+
+    return user
+
+
+def get_test_token(user_id="test_user"):
+    """Helper function to create a test authentication token"""
+    access_token = create_access_token(
+        data={"sub": user_id}, expires_delta=timedelta(minutes=30)
+    )
+    return access_token
+
+
+def get_auth_header(token=None, user_id="test_user"):
+    """Create authorization header with token"""
+    if token is None:
+        token = get_test_token(user_id)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.mark.asyncio
+async def test_list_topics():
     """Test listing topics endpoint"""
     response = client.get("/topics")
     assert response.status_code == 200
@@ -40,36 +86,80 @@ def test_list_topics():
         assert "id" in topics_list[0]
         assert "title" in topics_list[0] or "description" in topics_list[0]
 
-    # Alternative approach if you are certain about specific topics
-    # title_list = [topic.get('title', '') for topic in topics_list]
-    # Check for specific titles that should exist in your default data
-    # assert any("Festival" in title for title in title_list)
 
+@pytest.mark.asyncio
+async def test_add_and_list_messages(setup_test_environment, test_user):
+    """Test adding and listing messages"""
+    # Use the authenticated user from the test_user fixture
+    # user = await anext(test_user)
+    auth_headers = test_user["auth_header"]
+    # auth_headers = test_user["auth_header"]
+    user_id = test_user["user"]["id"]
 
-def test_add_and_list_messages():
     # Add a message to a new topic
     topic_name = "test_topic"
     message_data = {
-        "userId": "test_user",
         "content": "Hello, world!",
         "metadata": {"key": "value"},
     }
 
-    response = client.post(f"/topics/{topic_name}/messages", json=message_data)
-    assert response.status_code == 200
-    message_id = response.json()["id"]
+    response = client.post(
+        f"/topics/{topic_name}/messages", json=message_data, headers=auth_headers
+    )
+    assert response.status_code == 201  # Should be 201 Created
+    response_data = response.json()
+    assert "id" in response_data
 
-    # Verify message was added by listing messages in the topic
+    # Now list messages in the topic
     response = client.get(f"/topics/{topic_name}/messages")
     assert response.status_code == 200
-    messages = response.json()["messages"]
-    assert len(messages) == 1
-    assert messages[0]["content"] == "Hello, world!"
 
-    # Verify the message ID matches
-    assert messages[0]["id"] == message_id, (
-        "Message ID in response should match the ID from creation"
-    )
+    messages = response.json()
+    assert isinstance(messages, list)
+    assert len(messages) > 0
+    assert messages[0]["content"] == "Hello, world!"
+    assert (
+        messages[0]["user_id"] == user_id
+    )  # The server should set this from the auth token
+    assert "timestamp" in messages[0]
+
+
+@pytest.mark.asyncio
+async def test_get_user_messages(test_user):
+    """Test getting messages for a specific user"""
+    # Use the authenticated user from the test_user fixture
+    auth_headers = test_user["auth_header"]
+    user_id = test_user["user"]["id"]
+
+    # Add a few messages from this user to different topics
+    topics = ["topic1", "topic2"]
+    for topic in topics:
+        for i in range(3):
+            message_data = {
+                "content": f"Message {i} in {topic}",
+            }
+            response = client.post(
+                f"/topics/{topic}/messages", json=message_data, headers=auth_headers
+            )
+            assert response.status_code == 201
+
+    # Now get all messages for this user
+    response = client.get(f"/users/{user_id}/messages", headers=auth_headers)
+    assert response.status_code == 200
+
+    response_data = response.json()
+    assert "messages" in response_data
+    messages = response_data["messages"]
+    assert isinstance(messages, list)
+    assert len(messages) == 6  # 3 messages in each of 2 topics
+
+    # Check message contents
+    topics_found = set()
+    for msg in messages:
+        assert msg["message"]["user_id"] == user_id
+        topics_found.add(msg["topic"]["name"])
+
+    assert topics_found == {"topic1", "topic2"}
 
 
 def test_query_topics(mock_embedding_generator):

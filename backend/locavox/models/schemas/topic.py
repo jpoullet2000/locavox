@@ -14,7 +14,7 @@ class TopicBase(BaseModel):
     title: str
     description: str
     category: Optional[str] = None
-    image_url: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 class TopicCreate(TopicBase):
@@ -29,15 +29,24 @@ class TopicUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
-    image_url: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
-class Topic(TopicBase):
+class TopicInDB(TopicBase):
     """Complete Topic model including database fields"""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
-    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.now)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: Optional[datetime.datetime] = None
+
+    class Config:
+        orm_mode = True
+
+
+class TopicResponse(TopicBase):
+    """Topic response model"""
+
+    id: str
 
     class Config:
         from_attributes = True

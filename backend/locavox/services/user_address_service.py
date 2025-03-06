@@ -3,14 +3,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
+from ..models.sql.user import User  # Import User model to check if user exists
+from ..models.sql.user_address import UserAddress  # Import the correct SQL model
 from ..models.schemas.user_address import (
-    UserAddress,
     UserAddressCreate,
     UserAddressUpdate,
+    UserAddressResponse,
 )
 from ..utils.geocoding import geocode_address
 
 logger = logging.getLogger(__name__)
+
+
+class UserNotFoundError(Exception):
+    """Raised when a user_id doesn't exist in the database."""
+
+    pass
 
 
 async def get_user_addresses(db: AsyncSession, user_id: str) -> List[UserAddress]:
@@ -49,8 +57,20 @@ async def create_user_address(
 
     Returns:
         Created UserAddress object
+
+    Raises:
+        UserNotFoundError: If the user doesn't exist
     """
     try:
+        # First check if the user exists
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            logger.error(f"Cannot create address: User with ID {user_id} not found")
+            raise UserNotFoundError(f"User with ID {user_id} doesn't exist")
+
+        # Continue with address creation
         address_dict = address.dict()
 
         # Geocode the address if coordinates are not provided
@@ -84,6 +104,9 @@ async def create_user_address(
         await db.refresh(db_address)
         logger.info(f"Created new address {db_address.id} for user {user_id}")
         return db_address
+    except UserNotFoundError:
+        # Re-raise this specific error for handling in the API layer
+        raise
     except Exception as e:
         await db.rollback()
         logger.error(f"Error creating address for user {user_id}: {str(e)}")
