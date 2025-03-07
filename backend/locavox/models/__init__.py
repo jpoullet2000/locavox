@@ -4,6 +4,7 @@
 from .sql.base import SQLBaseModel, Base
 from .sql.user import User
 from .sql.user_address import UserAddress
+from .sql.topic import Topic
 
 # Import Pydantic schemas
 from .schemas.user import (
@@ -33,6 +34,7 @@ __all__ = [
     "UserUpdate",
     "Token",
     "TokenData",
+    "Topic",
     "UserAddressBase",
     "UserAddressCreate",
     "UserAddressUpdate",

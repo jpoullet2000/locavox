@@ -171,18 +171,3 @@ async def get_user_messages(
         "limit": limit,
         "messages": paginated_messages,
     }
-
-
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def create_new_user(
-    user_data: UserCreate,
-    db: AsyncSession = Depends(get_db_session),  # Change to get_db_session
-):
-    """
-    Create a new user
-    """
-    try:
-        user = await create_user(db, user_data)
-        return user
-    except UserExistsError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

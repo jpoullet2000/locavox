@@ -76,7 +76,7 @@ async def setup_test_environment():
     config.USE_LLM_BY_DEFAULT = False  # Disable LLM for tests
     config.settings.TESTING = True  # Make sure TESTING flag is set
     config.settings.DATABASE_RECREATE_TABLES = True  # Force table recreation
-    breakpoint()
+
     test_logger.info(f"Using test database path: {test_db_path}")
     test_logger.info(f"Default message limit: {config.MAX_MESSAGES_PER_USER}")
 
@@ -85,20 +85,34 @@ async def setup_test_environment():
         os.makedirs(test_db_path)
 
     # Import here to avoid circular imports
-    from locavox.database import init_db
+    # from locavox.database import init_db
 
     # Initialize database tables
-    await init_db()
-    session = await override_get_db_session()
+    # await init_db()
     from sqlalchemy import text
 
-    result = await session.execute(
-        text("SELECT name FROM sqlite_master WHERE type='table';")
-    )
-    tables = [row[0] for row in await result.fetchall()]
-    test_logger.info(f"Tables created in test DB: {tables}")
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
 
-    yield
+        # async with TestSessionLocal() as session:
+        # Override the get_db_session dependency
+        # app.dependency_overrides[get_db_session] = override_get_db_session
+
+        # Yield the session for the test
+        tables = await conn.run_sync(
+            lambda sync_conn: sync_conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table';")
+            ).fetchall()
+        )
+        # tables_created = [row[0] for row in result]
+        # result = await session.execute(
+        #     text("SELECT name FROM sqlite_master WHERE type='table';")
+        # )
+        # tables = [row[0] for row in result.fetchall()]
+        test_logger.info(f"Tables created in test DB: {tables}")
+        # session = await override_get_db_session()
+        yield
 
     # Cleanup after test
     try:
@@ -109,7 +123,6 @@ async def setup_test_environment():
     # Restore original settings
     config.DATABASE_PATH = original_db_path
     config.MAX_MESSAGES_PER_USER = original_max_msgs
-    session.close()
 
 
 # # Create test database and tables
@@ -167,6 +180,33 @@ async def test_user():
             "token": access_token,
             "auth_header": {"Authorization": f"Bearer {access_token}"},
         }
+
+
+@pytest.fixture
+async def test_topic():
+    """Create a test topic and return it"""
+    from locavox.models.sql.topic import Topic  # Import the Topic model
+
+    # Generate a unique ID for the topic
+    import uuid
+
+    topic_id = str(uuid.uuid4())
+
+    async with TestSessionLocal() as session:
+        # Create test topic
+        topic = Topic(
+            id=topic_id,
+            title="Test Topic",
+            description="This is a test topic created for testing purposes",
+            # Add any other required fields here
+            category="test category",
+        )
+
+        session.add(topic)
+        await session.commit()
+        await session.refresh(topic)
+
+        yield {"topic": topic, "id": topic_id}
 
 
 # Setup and teardown the test database

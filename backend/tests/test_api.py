@@ -88,30 +88,30 @@ async def test_list_topics():
 
 
 @pytest.mark.asyncio
-async def test_add_and_list_messages(setup_test_environment, test_user):
+async def test_add_and_list_messages(test_user, test_topic):
     """Test adding and listing messages"""
     # Use the authenticated user from the test_user fixture
     # user = await anext(test_user)
     auth_headers = test_user["auth_header"]
     # auth_headers = test_user["auth_header"]
-    user_id = test_user["user"]["id"]
+    user_id = test_user["user"].id
+    topic_id = test_topic["id"]
 
     # Add a message to a new topic
-    topic_name = "test_topic"
     message_data = {
         "content": "Hello, world!",
         "metadata": {"key": "value"},
     }
 
     response = client.post(
-        f"/topics/{topic_name}/messages", json=message_data, headers=auth_headers
+        f"/topics/{topic_id}/messages", json=message_data, headers=auth_headers
     )
     assert response.status_code == 201  # Should be 201 Created
     response_data = response.json()
     assert "id" in response_data
 
     # Now list messages in the topic
-    response = client.get(f"/topics/{topic_name}/messages")
+    response = client.get(f"/topics/{topic_id}/messages")
     assert response.status_code == 200
 
     messages = response.json()
@@ -157,7 +157,7 @@ async def test_get_user_messages(test_user):
     topics_found = set()
     for msg in messages:
         assert msg["message"]["user_id"] == user_id
-        topics_found.add(msg["topic"]["name"])
+        topics_found.add(msg["topic"]["id"])
 
     assert topics_found == {"topic1", "topic2"}
 

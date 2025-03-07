@@ -97,7 +97,6 @@ async def create_new_topic(
     topic: TopicCreate, current_user: User = Depends(get_current_user)
 ):
     """Create a new topic."""
-    breakpoint()
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Only admins can create topics")
 
