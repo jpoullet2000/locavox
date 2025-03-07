@@ -1,7 +1,5 @@
 import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import patch
-from locavox.main import app
 from locavox.logger import setup_logger
 from datetime import timedelta
 
@@ -11,7 +9,6 @@ from locavox.models.sql.user import User
 from locavox.utils.security import get_password_hash
 
 logger = setup_logger("tests.api")
-client = TestClient(app)
 
 
 @pytest.fixture
@@ -71,8 +68,7 @@ def get_auth_header(token=None, user_id="test_user"):
     return {"Authorization": f"Bearer {token}"}
 
 
-@pytest.mark.asyncio
-async def test_list_topics():
+def test_list_topics(client):
     """Test listing topics endpoint"""
     response = client.get("/topics")
     assert response.status_code == 200
@@ -88,13 +84,15 @@ async def test_list_topics():
 
 
 @pytest.mark.asyncio
-async def test_add_and_list_messages(test_user, test_topic):
+async def test_add_and_list_messages(
+    test_superuser, test_topic, test_db_engine, client
+):
     """Test adding and listing messages"""
     # Use the authenticated user from the test_user fixture
     # user = await anext(test_user)
-    auth_headers = test_user["auth_header"]
+    auth_headers = test_superuser["auth_header"]
     # auth_headers = test_user["auth_header"]
-    user_id = test_user["user"].id
+    user_id = test_superuser["user"].id
     topic_id = test_topic["id"]
 
     # Add a message to a new topic
@@ -103,6 +101,30 @@ async def test_add_and_list_messages(test_user, test_topic):
         "metadata": {"key": "value"},
     }
 
+    # Add this before making the request
+    async def verify_topic_exists(test_db_engine, topic_id):
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from sqlalchemy.orm import sessionmaker
+
+        TestSessionLocal = sessionmaker(
+            test_db_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        async with TestSessionLocal() as session:
+            result = await session.execute(
+                text(f"SELECT * FROM topics WHERE id = '{topic_id}'")
+            )
+            rows = result.fetchall()
+            print(f"Topic rows found: {rows}")
+            return len(rows) > 0
+
+    # Before the client.post call
+    assert await verify_topic_exists(test_db_engine, topic_id), (
+        f"Topic {topic_id} does not exist"
+    )
     response = client.post(
         f"/topics/{topic_id}/messages", json=message_data, headers=auth_headers
     )

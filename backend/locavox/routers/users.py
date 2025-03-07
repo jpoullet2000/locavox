@@ -37,6 +37,9 @@ async def get_users(
     """
     logger.info(f"Getting users with skip={skip}, limit={limit}")
 
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Only admins can see users")
+
     try:
         # Query to get users with pagination
         stmt = (

@@ -185,3 +185,38 @@ Hardcoded fallback values
 ```
 
 This ensures your application remains functional in various development scenarios.
+
+## Administration Tools
+
+### Creating Admin Users
+
+To create an administrator user with elevated permissions, use the following command:
+
+```bash
+cd /home/jbp/projects/locavox/backend
+python -m locavox.tools.create_admin --username admin --email admin@example.com --password securepassword
+```
+
+Options:
+- `--username` or `-u`: Admin username (required)
+- `--email` or `-e`: Admin email address (required)
+- `--password` or `-p`: Admin password (required)
+- `--force` or `-f`: Override existing user with the same username or email
+
+This will create a new user with superuser privileges who can access administrative functions in the application.
+
+### Inspecting Database Tables
+
+To view all tables in the database and inspect their structure, use the following command:
+
+```bash
+cd /home/jbp/projects/locavox/backend
+python -m locavox.tools.log_tables
+```
+
+Options:
+- `--verbose` or `-v`: Show detailed information about columns and constraints
+- `--data` or `-d`: Show sample data from each table
+- `--limit` or `-l`: Maximum number of rows to show when displaying sample data (default: 5)
+
+This tool helps verify that all expected tables have been created correctly in the database.

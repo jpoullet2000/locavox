@@ -1,103 +1,151 @@
 import uuid
 from typing import List, Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..models.sql.topic import Topic
 from ..models.schemas.topic import TopicCreate, TopicUpdate
+from ..database import get_db_session
+from ..logger import setup_logger
 
-# In-memory topic store for demonstration
-topics_db = {}
+logger = setup_logger(__name__)
 
 
-async def get_topics(skip: int = 0, limit: int = 100) -> List:
+async def get_topics(skip: int = 0, limit: int = 100) -> List[Topic]:
     """
-    Get a list of all topics
+    Retrieve topics from the database with pagination.
 
     Args:
-        skip: Number of topics to skip
-        limit: Maximum number of topics to return
+        skip: Number of records to skip
+        limit: Maximum number of records to return
 
     Returns:
-        List of topic objects
+        List of Topic objects
     """
-    topics = list(topics_db.values())
-    return topics[skip : skip + limit]
+    async for session in get_db_session():
+        try:
+            query = select(Topic).offset(skip).limit(limit)
+            result = await session.execute(query)
+            topics = result.scalars().all()
+            return topics
+        except Exception as e:
+            logger.error(f"Error retrieving topics: {str(e)}")
+            return []
 
 
-async def get_topic_by_id(topic_id: str) -> Optional[dict]:
+async def get_topic_by_id(topic_id: str) -> Optional[Topic]:
     """
-    Get a topic by ID
+    Retrieve a specific topic by ID.
 
     Args:
-        topic_id: UUID of the topic
+        topic_id: The ID of the topic to retrieve
 
     Returns:
-        Topic object or None if not found
+        Topic object if found, None otherwise
     """
-    return topics_db.get(topic_id)
+    async for session in get_db_session():
+        try:
+            query = select(Topic).where(Topic.id == topic_id)
+            result = await session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Error retrieving topic {topic_id}: {str(e)}")
+            return None
 
 
-async def create_topic(topic: TopicCreate) -> dict:
+async def create_topic(topic_data: TopicCreate) -> Topic:
     """
-    Create a new topic
+    Create a new topic in the database.
 
     Args:
-        topic: Topic creation data
+        topic_data: TopicCreate object with the data for the new topic
 
     Returns:
-        Created topic object
+        Created Topic object
     """
-    # Generate UUID for the topic
-    topic_id = str(uuid.uuid4())
+    async for session in get_db_session():
+        try:
+            # Convert Pydantic model to SQL model
+            new_topic = Topic(
+                title=topic_data.title,
+                description=topic_data.description,
+                category=topic_data.category,
+                image_url=topic_data.image_url,
+            )
 
-    topic_dict = topic.model_dump()
-    topic_dict["id"] = topic_id
-    topic_dict["image_url"] = topic_dict.pop(
-        "imageUrl", None
-    )  # Convert to snake_case for storage
-
-    # Store in our in-memory DB
-    topics_db[topic_id] = topic_dict
-
-    return topic_dict
+            session.add(new_topic)
+            await session.commit()
+            await session.refresh(new_topic)
+            return new_topic
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error creating topic: {str(e)}")
+            raise
 
 
-async def update_topic(topic_id: str, topic: TopicUpdate) -> Optional[dict]:
+async def update_topic(topic_id: str, topic_update: TopicUpdate) -> Optional[Topic]:
     """
-    Update an existing topic
+    Update an existing topic.
 
     Args:
-        topic_id: UUID of the topic
-        topic: Topic update data
+        topic_id: ID of the topic to update
+        topic_update: TopicUpdate object with the updated data
 
     Returns:
-        Updated topic object or None if not found
+        Updated Topic object if found and updated, None otherwise
     """
-    if topic_id not in topics_db:
-        return None
+    async for session in get_db_session():
+        try:
+            # First, get the existing topic
+            topic = await get_topic_by_id(topic_id)
 
-    current_topic = topics_db[topic_id]
-    update_data = topic.dict(exclude_unset=True)
+            if not topic:
+                return None
 
-    # Handle imageUrl conversion to image_url
-    if "imageUrl" in update_data:
-        update_data["image_url"] = update_data.pop("imageUrl")
+            # Update topic fields
+            update_data = topic_update.dict(exclude_unset=True)
+            for key, value in update_data.items():
+                # Convert snake_case to camelCase for 'image_url' field from API
+                if key == "image_url":
+                    setattr(topic, "image_url", value)
+                else:
+                    setattr(topic, key, value)
 
-    # Update topic fields
-    for field, value in update_data.items():
-        current_topic[field] = value
+            session.add(topic)
+            await session.commit()
+            await session.refresh(topic)
+            return topic
 
-    return current_topic
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error updating topic {topic_id}: {str(e)}")
+            return None
 
 
 async def delete_topic(topic_id: str) -> bool:
     """
-    Delete a topic
+    Delete a topic from the database.
 
     Args:
-        topic_id: UUID of the topic
+        topic_id: ID of the topic to delete
 
     Returns:
-        True if deleted, False if not found
+        True if the topic was successfully deleted, False otherwise
     """
-    if topic_id in topics_db:
-        del topics_db[topic_id]
-        return True
-    return False
+    async for session in get_db_session():
+        try:
+            # First check if topic exists
+            topic = await get_topic_by_id(topic_id)
+
+            if not topic:
+                return False
+
+            # Delete the topic
+            await session.delete(topic)
+            await session.commit()
+            return True
+
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Error deleting topic {topic_id}: {str(e)}")
+            return False

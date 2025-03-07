@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Path, Query, status
 from typing import List, Dict, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from ..services.topics import (
     get_topics as db_get_topics,
     create_topic,
     update_topic,
     delete_topic,
+    get_topic_by_id,
 )
 
 # Import the function from topic_registry directly
@@ -41,7 +42,8 @@ class TopicResponse(BaseModel):
     title: str
     description: str
     category: Optional[str] = None
-    imageUrl: Optional[str] = None
+    # Use Field with an alias to keep API consistent
+    image_url: Optional[str] = Field(default=None, alias="imageUrl")
 
     class Config:
         schema_extra = {
@@ -53,6 +55,7 @@ class TopicResponse(BaseModel):
                 "imageUrl": "https://example.com/images/events.jpg",
             }
         }
+        allow_population_by_field_name = True
 
 
 class TopicsListResponse(BaseModel):
@@ -84,7 +87,7 @@ async def read_topics(skip: int = 0, limit: int = 100):
             title=topic.title,
             description=topic.description,
             category=topic.category,
-            imageUrl=topic.image_url,
+            image_url=topic.image_url,
         )
         for topic in topics
     ]
@@ -101,20 +104,32 @@ async def create_new_topic(
         raise HTTPException(status_code=403, detail="Only admins can create topics")
 
     created_topic = await create_topic(topic)
-    return TopicResponse(
-        id=str(created_topic.id),
-        title=created_topic.title,
-        description=created_topic.description,
-        category=created_topic.category,
-        imageUrl=created_topic.image_url,
-    )
+
+    # Check if created_topic is a dict and handle accordingly
+    if isinstance(created_topic, dict):
+        return TopicResponse(
+            id=str(created_topic["id"]),
+            title=created_topic["title"],
+            description=created_topic["description"],
+            category=created_topic.get("category"),
+            image_url=created_topic.get("image_url"),
+        )
+    else:
+        # Handle it as an object with attributes
+        return TopicResponse(
+            id=str(created_topic.id),
+            title=created_topic.title,
+            description=created_topic.description,
+            category=created_topic.category,
+            image_url=created_topic.image_url,
+        )
 
 
 @router.get("/{topic_id}", response_model=TopicResponse)
 async def read_topic(topic_id: str):
     """Get a specific topic by ID."""
-    # This should call the async function from db.topics
-    topic = await db_get_topics.get_topic_by_id(topic_id)
+    # Call the get_topic_by_id function from the topics service
+    topic = await get_topic_by_id(topic_id)
 
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -124,7 +139,7 @@ async def read_topic(topic_id: str):
         title=topic.title,
         description=topic.description,
         category=topic.category,
-        imageUrl=topic.image_url,
+        image_url=topic.image_url,
     )
 
 
@@ -148,7 +163,7 @@ async def update_existing_topic(
         title=updated_topic.title,
         description=updated_topic.description,
         category=updated_topic.category,
-        imageUrl=updated_topic.image_url,
+        image_url=updated_topic.image_url,
     )
 
 

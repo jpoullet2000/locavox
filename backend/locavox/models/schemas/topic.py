@@ -14,7 +14,10 @@ class TopicBase(BaseModel):
     title: str
     description: str
     category: Optional[str] = None
-    imageUrl: Optional[str] = None
+    image_url: Optional[str] = Field(default=None, alias="imageUrl")
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 class TopicCreate(TopicBase):
@@ -23,13 +26,13 @@ class TopicCreate(TopicBase):
     pass
 
 
-class TopicUpdate(BaseModel):
+class TopicUpdate(TopicBase):
     """Model for updating an existing topic"""
 
     title: Optional[str] = None
     description: Optional[str] = None
     category: Optional[str] = None
-    imageUrl: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class TopicInDB(TopicBase):

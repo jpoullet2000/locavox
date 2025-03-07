@@ -3,6 +3,7 @@ import os
 import shutil
 import logging
 import asyncio
+import uuid
 from unittest.mock import patch, MagicMock
 from locavox import config
 from locavox.logger import setup_logger
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from datetime import timedelta
 import sys
+from sqlalchemy.pool import StaticPool
 
 # Add the parent directory to the path so we can import from locavox
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -28,31 +30,102 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 # Configure test logger
 test_logger = setup_logger("tests", logging.DEBUG)
 
-# Create test engine
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
 
-# Create test session factory
-TestSessionLocal = sessionmaker(
-    test_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
+@pytest.fixture(scope="session")
+async def test_db_engine():
+    """Create a shared test engine for all tests"""
+    # Create the engine with a shared cache parameter
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:?cache=shared",
+        echo=True,
+        poolclass=StaticPool,  # Important for shared memory connection
+    )
+
+    # Create initial tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield engine
+
+    # Clean up tables after tests are done
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
-# Override the get_db_session dependency
-async def override_get_db_session():
-    async with TestSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+# # Create test engine
+# test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
+
+# # Create test session factory
+# TestSessionLocal = sessionmaker(
+#     test_engine,
+#     class_=AsyncSession,
+#     expire_on_commit=False,
+#     autocommit=False,
+#     autoflush=False,
+# )
 
 
-# Test client with overridden dependencies
+# # Override the get_db_session dependency
+# async def override_get_db_session():
+#     async with TestSessionLocal() as session:
+#         try:
+#             yield session
+#         finally:
+#             await session.close()
+
+
+# # Test client with overridden dependencies
+# @pytest.fixture
+# def client():
+#     app.dependency_overrides[get_db_session] = override_get_db_session
+#     with TestClient(app) as test_client:
+#         yield test_client
+#     app.dependency_overrides = {}
+
+
+# @pytest.fixture
+# async def override_get_db_session(test_db_engine):
+#     """Get database session from the shared engine"""
+#     # Create session factory from the shared engine
+#     TestSessionLocal = sessionmaker(
+#         test_db_engine,
+#         class_=AsyncSession,
+#         expire_on_commit=False,
+#         autoflush=False,
+#     )
+
+#     # Yield the session
+#     async with TestSessionLocal() as session:
+#         try:
+#             yield session
+#         finally:
+#             await session.close()
+
+
 @pytest.fixture
-def client():
+async def override_get_db_session(test_db_engine):
+    """Get database session from the shared engine"""
+    # Create session factory from the shared engine
+    TestSessionLocal = sessionmaker(
+        test_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    async def _override_get_db_session():
+        async with TestSessionLocal() as session:
+            try:
+                yield session
+            finally:
+                await session.close()
+
+    return _override_get_db_session  # Return the function, not the session
+
+
+@pytest.fixture
+def client(override_get_db_session):
+    """Test client with the shared database session"""
     app.dependency_overrides[get_db_session] = override_get_db_session
     with TestClient(app) as test_client:
         yield test_client
@@ -60,7 +133,7 @@ def client():
 
 
 @pytest.fixture(scope="session", autouse=True)
-async def setup_test_environment():
+async def setup_test_environment(test_db_engine):
     """Setup test environment
 
     This fixture is run before each test to set up the test environment.
@@ -91,7 +164,7 @@ async def setup_test_environment():
     # await init_db()
     from sqlalchemy import text
 
-    async with test_engine.begin() as conn:
+    async with test_db_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
 
@@ -140,10 +213,60 @@ async def setup_test_environment():
 
 
 # Create a test user and return authentication token
+# @pytest.fixture
+# # async def test_user(init_test_db):
+# async def test_user():
+#     user_id = "test_user_id"
+
+#     async with TestSessionLocal() as session:
+#         # Check if user already exists
+#         from sqlalchemy import select
+
+#         result = await session.execute(select(User).where(User.id == user_id))
+#         existing_user = result.scalar_one_or_none()
+
+#         if existing_user is None:
+#             # Create test user
+#             user = User(
+#                 id=user_id,
+#                 email="test@example.com",
+#                 username="testuser",
+#                 hashed_password=get_password_hash("password123"),
+#                 is_active=True,
+#             )
+#             session.add(user)
+#             await session.commit()
+#             await session.refresh(user)
+#         else:
+#             user = existing_user
+
+#         # Create token
+#         access_token = create_access_token(
+#             data={"sub": user.id}, expires_delta=timedelta(minutes=30)
+#         )
+
+#         # Override the auth dependency
+#         app.dependency_overrides[get_db_session] = override_get_db_session
+
+#         yield {
+#             "user": user,
+#             "token": access_token,
+#             "auth_header": {"Authorization": f"Bearer {access_token}"},
+#         }
+
+
 @pytest.fixture
-# async def test_user(init_test_db):
-async def test_user():
-    user_id = "test_user_id"
+async def test_user(test_db_engine):
+    """Create a test user with authentication token"""
+    user_id = str(uuid.uuid4())
+
+    # Create session factory from the shared engine
+    TestSessionLocal = sessionmaker(
+        test_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
     async with TestSessionLocal() as session:
         # Check if user already exists
@@ -172,8 +295,53 @@ async def test_user():
             data={"sub": user.id}, expires_delta=timedelta(minutes=30)
         )
 
-        # Override the auth dependency
-        app.dependency_overrides[get_db_session] = override_get_db_session
+        yield {
+            "user": user,
+            "token": access_token,
+            "auth_header": {"Authorization": f"Bearer {access_token}"},
+        }
+
+
+@pytest.fixture
+async def test_superuser(test_db_engine):
+    """Create a test superuser with authentication token"""
+    superuser_id = str(uuid.uuid4())
+
+    # Create session factory from the shared engine
+    TestSessionLocal = sessionmaker(
+        test_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+    async with TestSessionLocal() as session:
+        # Check if superuser already exists
+        from sqlalchemy import select
+
+        result = await session.execute(select(User).where(User.id == superuser_id))
+        existing_user = result.scalar_one_or_none()
+
+        if existing_user is None:
+            # Create test superuser
+            user = User(
+                id=superuser_id,
+                email="admin@example.com",
+                username="admin",
+                hashed_password=get_password_hash("admin123"),
+                is_active=True,
+                is_superuser=True,  # This is the key difference
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        else:
+            user = existing_user
+
+        # Create token
+        access_token = create_access_token(
+            data={"sub": user.id}, expires_delta=timedelta(minutes=30)
+        )
 
         yield {
             "user": user,
@@ -183,7 +351,7 @@ async def test_user():
 
 
 @pytest.fixture
-async def test_topic():
+async def test_topic(test_db_engine):
     """Create a test topic and return it"""
     from locavox.models.sql.topic import Topic  # Import the Topic model
 
@@ -191,6 +359,14 @@ async def test_topic():
     import uuid
 
     topic_id = str(uuid.uuid4())
+
+    # Create session factory from the shared engine
+    TestSessionLocal = sessionmaker(
+        test_db_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
     async with TestSessionLocal() as session:
         # Create test topic
@@ -207,6 +383,33 @@ async def test_topic():
         await session.refresh(topic)
 
         yield {"topic": topic, "id": topic_id}
+
+
+# @pytest.fixture
+# async def test_topic():
+#     """Create a test topic and return it"""
+#     from locavox.models.sql.topic import Topic  # Import the Topic model
+
+#     # Generate a unique ID for the topic
+#     import uuid
+
+#     topic_id = str(uuid.uuid4())
+
+#     async with TestSessionLocal() as session:
+#         # Create test topic
+#         topic = Topic(
+#             id=topic_id,
+#             title="Test Topic",
+#             description="This is a test topic created for testing purposes",
+#             # Add any other required fields here
+#             category="test category",
+#         )
+
+#         session.add(topic)
+#         await session.commit()
+#         await session.refresh(topic)
+
+#         yield {"topic": topic, "id": topic_id}
 
 
 # Setup and teardown the test database
