@@ -24,6 +24,9 @@ from ..topic_registry import get_topics as get_topic_registry
 from sqlalchemy.ext.asyncio import AsyncSession
 from locavox.database import get_db_session
 
+# Import the new topic sync service
+from ..services.topic_sync_service import TopicRegistrySyncService
+
 # Set up logger for this module
 logger = setup_logger(__name__)
 
@@ -46,7 +49,7 @@ class TopicResponse(BaseModel):
     image_url: Optional[str] = Field(default=None, alias="imageUrl")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "id": "123",
                 "title": "Local Events",
@@ -55,7 +58,7 @@ class TopicResponse(BaseModel):
                 "imageUrl": "https://example.com/images/events.jpg",
             }
         }
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class TopicsListResponse(BaseModel):
@@ -79,6 +82,9 @@ async def read_topics(skip: int = 0, limit: int = 100):
     Returns a list of topic objects with full attributes instead of just names.
     """
     topics = await db_get_topics(skip=skip, limit=limit)
+
+    # Sync all topics to the registry to ensure they're available for messaging
+    await TopicRegistrySyncService.sync_all_topics_to_registry(topics)
 
     # Transform the topics into the expected response format
     formatted_topics = [
@@ -104,6 +110,9 @@ async def create_new_topic(
         raise HTTPException(status_code=403, detail="Only admins can create topics")
 
     created_topic = await create_topic(topic)
+
+    # Sync the newly created topic to the registry
+    await TopicRegistrySyncService.sync_topic_to_registry(created_topic)
 
     # Check if created_topic is a dict and handle accordingly
     if isinstance(created_topic, dict):
@@ -133,6 +142,9 @@ async def read_topic(topic_id: str):
 
     if topic is None:
         raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Sync this topic to the registry
+    await TopicRegistrySyncService.sync_topic_to_registry(topic)
 
     return TopicResponse(
         id=str(topic.id),
@@ -200,6 +212,7 @@ async def get_topic_messages(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     current_user: Optional[User] = Depends(auth_service.get_current_user_optional),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Get messages for a specific topic.
@@ -208,15 +221,30 @@ async def get_topic_messages(
     """
     logger.info(f"Getting messages for topic {topic_id}")
 
-    # Use the non-async function from topic_registry
-    topic = registry_get_topic_by_id(topic_id)
-
-    if not topic:
-        logger.warning(f"Topic with ID {topic_id} not found")
+    # First check if topic exists in database
+    db_topic = await get_topic_by_id(topic_id)
+    if not db_topic:
+        logger.warning(f"Topic with ID {topic_id} not found in database")
         raise HTTPException(status_code=404, detail="Topic not found")
 
+    # Try to get topic from registry for message handling
+    registry_topic = registry_get_topic_by_id(topic_id)
+
+    if not registry_topic:
+        logger.warning(f"Topic exists in database but not in registry: {topic_id}")
+        # Dynamically sync the database topic to the registry
+        sync_result = await TopicRegistrySyncService.sync_topic_to_registry(db_topic)
+        if sync_result:
+            # Try to get the topic from the registry again
+            registry_topic = registry_get_topic_by_id(topic_id)
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to prepare topic {topic_id} for messaging",
+            )
+
     try:
-        messages = await topic.get_messages(
+        messages = await registry_topic.get_messages(
             skip=skip, limit=limit, current_user=current_user
         )
         return messages
@@ -250,19 +278,51 @@ async def create_topic_message(
     """
     logger.info(f"Creating message in topic {topic_id}")
 
-    # Use the non-async function from topic_registry
-    topic = registry_get_topic_by_id(topic_id)
-
-    if not topic:
-        logger.warning(f"Topic with ID {topic_id} not found")
+    # First check if topic exists in database
+    db_topic = await get_topic_by_id(topic_id)
+    if not db_topic:
+        logger.warning(f"Topic with ID {topic_id} not found in database")
         raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Try to get topic from registry for message handling
+    registry_topic = registry_get_topic_by_id(topic_id)
+
+    if not registry_topic:
+        logger.warning(f"Topic exists in database but not in registry: {topic_id}")
+
+        try:
+            # Dynamically sync the database topic to the registry
+            sync_result = await TopicRegistrySyncService.sync_topic_to_registry(
+                db_topic
+            )
+            if sync_result:
+                # Try to get the topic from the registry again
+                registry_topic = registry_get_topic_by_id(topic_id)
+                if not registry_topic:
+                    logger.error(
+                        f"Topic {topic_id} was synced but not found in registry"
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Topic {topic_id} was synced but not found in registry",
+                    )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to prepare topic {topic_id} for messaging",
+                )
+        except Exception as e:
+            logger.error(f"Error syncing topic {topic_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Error syncing topic {topic_id}: {str(e)}"
+            )
 
     # Add the user ID to the message
     message["user_id"] = current_user.id
 
     try:
         # Use the topic-specific creation logic
-        result = await topic.create_message(message, current_user)
+        result = await registry_topic.create_message(message, current_user)
         return result
     except AttributeError as e:
         logger.error(f"Error creating message in topic {topic_id}: {str(e)}")

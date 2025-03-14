@@ -7,6 +7,7 @@ import uuid
 from typing import Dict, Any, Optional
 from .models.schemas import TopicBase
 from .logger import setup_logger
+from datetime import datetime
 
 logger = setup_logger(__name__)
 
@@ -99,3 +100,58 @@ def get_topic_by_name(topic_name: str) -> Optional[Any]:
             return topic
 
     return None
+
+
+class DynamicTopic:
+    """
+    A dynamically created topic that supports basic message operations.
+    Used for topics that exist in the database but weren't explicitly registered.
+    """
+
+    def __init__(self, topic_data):
+        self.id = topic_data["id"]
+        self.title = topic_data["title"]
+        self.description = topic_data["description"]
+        self.messages = []
+
+    async def create_message(self, message_data, user):
+        """Create a new message in this topic"""
+        message_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        message = {
+            "id": message_id,
+            "content": message_data.get("content", ""),
+            "user_id": user.id,
+            "topic_id": self.id,
+            "timestamp": timestamp,
+            "metadata": message_data.get("metadata", {}),
+        }
+
+        self.messages.append(message)
+        return message
+
+    async def get_messages(self, skip=0, limit=50, current_user=None):
+        """Get messages from this topic"""
+        # Sort by timestamp (newest first)
+        sorted_messages = sorted(
+            self.messages, key=lambda x: x.get("timestamp", ""), reverse=True
+        )
+
+        # Apply pagination
+        paginated_messages = sorted_messages[skip : skip + limit]
+        return paginated_messages
+
+
+def register_topic(topic_id, topic_data):
+    """
+    Register a new topic in the registry.
+    For dynamically created topics from the database.
+    """
+    global topics  # Use the topics variable defined at the module level
+
+    # Create a dynamic topic instance
+    topic = DynamicTopic(topic_data)
+    topics[topic_id] = topic
+    logger.info(f"Dynamically registered topic {topic_id} in registry")
+    return topic

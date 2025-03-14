@@ -52,56 +52,6 @@ async def test_db_engine():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-# # Create test engine
-# test_engine = create_async_engine(TEST_DATABASE_URL, echo=True)
-
-# # Create test session factory
-# TestSessionLocal = sessionmaker(
-#     test_engine,
-#     class_=AsyncSession,
-#     expire_on_commit=False,
-#     autocommit=False,
-#     autoflush=False,
-# )
-
-
-# # Override the get_db_session dependency
-# async def override_get_db_session():
-#     async with TestSessionLocal() as session:
-#         try:
-#             yield session
-#         finally:
-#             await session.close()
-
-
-# # Test client with overridden dependencies
-# @pytest.fixture
-# def client():
-#     app.dependency_overrides[get_db_session] = override_get_db_session
-#     with TestClient(app) as test_client:
-#         yield test_client
-#     app.dependency_overrides = {}
-
-
-# @pytest.fixture
-# async def override_get_db_session(test_db_engine):
-#     """Get database session from the shared engine"""
-#     # Create session factory from the shared engine
-#     TestSessionLocal = sessionmaker(
-#         test_db_engine,
-#         class_=AsyncSession,
-#         expire_on_commit=False,
-#         autoflush=False,
-#     )
-
-#     # Yield the session
-#     async with TestSessionLocal() as session:
-#         try:
-#             yield session
-#         finally:
-#             await session.close()
-
-
 @pytest.fixture
 async def override_get_db_session(test_db_engine):
     """Get database session from the shared engine"""
@@ -198,65 +148,8 @@ async def setup_test_environment(test_db_engine):
     config.MAX_MESSAGES_PER_USER = original_max_msgs
 
 
-# # Create test database and tables
-# @pytest.fixture(scope="session")
-# async def init_test_db():
-#     # Create tables
-#     async with test_engine.begin() as conn:
-#         await conn.run_sync(Base.metadata.create_all)
-
-#     yield
-
-#     # Drop tables
-#     async with test_engine.begin() as conn:
-#         await conn.run_sync(Base.metadata.drop_all)
-
-
-# Create a test user and return authentication token
-# @pytest.fixture
-# # async def test_user(init_test_db):
-# async def test_user():
-#     user_id = "test_user_id"
-
-#     async with TestSessionLocal() as session:
-#         # Check if user already exists
-#         from sqlalchemy import select
-
-#         result = await session.execute(select(User).where(User.id == user_id))
-#         existing_user = result.scalar_one_or_none()
-
-#         if existing_user is None:
-#             # Create test user
-#             user = User(
-#                 id=user_id,
-#                 email="test@example.com",
-#                 username="testuser",
-#                 hashed_password=get_password_hash("password123"),
-#                 is_active=True,
-#             )
-#             session.add(user)
-#             await session.commit()
-#             await session.refresh(user)
-#         else:
-#             user = existing_user
-
-#         # Create token
-#         access_token = create_access_token(
-#             data={"sub": user.id}, expires_delta=timedelta(minutes=30)
-#         )
-
-#         # Override the auth dependency
-#         app.dependency_overrides[get_db_session] = override_get_db_session
-
-#         yield {
-#             "user": user,
-#             "token": access_token,
-#             "auth_header": {"Authorization": f"Bearer {access_token}"},
-#         }
-
-
 @pytest.fixture
-async def test_user(test_db_engine):
+async def normal_user(test_db_engine):
     """Create a test user with authentication token"""
     user_id = str(uuid.uuid4())
 
@@ -303,8 +196,12 @@ async def test_user(test_db_engine):
 
 
 @pytest.fixture
-async def test_superuser(test_db_engine):
+async def admin_superuser(test_db_engine):
     """Create a test superuser with authentication token"""
+    # Generate a unique username and email for each test run
+    unique_suffix = str(uuid.uuid4()).split("-")[0]
+    username = f"admin_{unique_suffix}"
+    email = f"admin_{unique_suffix}@example.com"
     superuser_id = str(uuid.uuid4())
 
     # Create session factory from the shared engine
@@ -316,27 +213,39 @@ async def test_superuser(test_db_engine):
     )
 
     async with TestSessionLocal() as session:
-        # Check if superuser already exists
-        from sqlalchemy import select
+        # Create test superuser with unique username and email
+        user = User(
+            id=superuser_id,
+            email=email,
+            username=username,
+            hashed_password=get_password_hash("admin123"),
+            is_active=True,
+            is_superuser=True,  # This is the key difference
+        )
+        session.add(user)
 
-        result = await session.execute(select(User).where(User.id == superuser_id))
-        existing_user = result.scalar_one_or_none()
-
-        if existing_user is None:
-            # Create test superuser
-            user = User(
-                id=superuser_id,
-                email="admin@example.com",
-                username="admin",
-                hashed_password=get_password_hash("admin123"),
-                is_active=True,
-                is_superuser=True,  # This is the key difference
-            )
-            session.add(user)
+        # Commit with error handling
+        try:
             await session.commit()
             await session.refresh(user)
-        else:
-            user = existing_user
+        except Exception as e:
+            # If there's an error (like unique constraint violation), log and rollback
+            print(f"Error creating test superuser: {e}")
+            await session.rollback()
+
+            # Check if it's a unique constraint error and try to find the existing user
+            from sqlalchemy import select
+
+            result = await session.execute(
+                select(User).where(User.is_superuser is True)
+            )
+            existing_user = result.scalar_one_or_none()
+
+            if existing_user is not None:
+                user = existing_user
+            else:
+                # Re-raise if we couldn't find an existing superuser
+                raise
 
         # Create token
         access_token = create_access_token(
@@ -383,33 +292,6 @@ async def test_topic(test_db_engine):
         await session.refresh(topic)
 
         yield {"topic": topic, "id": topic_id}
-
-
-# @pytest.fixture
-# async def test_topic():
-#     """Create a test topic and return it"""
-#     from locavox.models.sql.topic import Topic  # Import the Topic model
-
-#     # Generate a unique ID for the topic
-#     import uuid
-
-#     topic_id = str(uuid.uuid4())
-
-#     async with TestSessionLocal() as session:
-#         # Create test topic
-#         topic = Topic(
-#             id=topic_id,
-#             title="Test Topic",
-#             description="This is a test topic created for testing purposes",
-#             # Add any other required fields here
-#             category="test category",
-#         )
-
-#         session.add(topic)
-#         await session.commit()
-#         await session.refresh(topic)
-
-#         yield {"topic": topic, "id": topic_id}
 
 
 # Setup and teardown the test database
@@ -560,3 +442,51 @@ def test_app():
 
     client = TestClient(app)
     return client
+
+
+def get_authorized_client(client, test_user=None):
+    """Helper function to create an authorized test client.
+
+    Note: This modifies the client headers in place.
+    """
+    # Create a copy of the client headers to avoid modifying the original
+    headers = client.headers.copy()
+
+    if test_user:
+        # If test_user fixture is provided, use its token
+        headers.update(test_user["auth_header"])
+    else:
+        # Option 3: For testing purposes, you can include a special test header
+        headers.update({"X-Test-Authorization": "test-bypass-auth"})
+
+    # Update the client headers
+    client.headers = headers
+    return client
+
+
+@pytest.fixture
+def api_topic(client, admin_superuser):
+    """Create a topic through the API endpoint for testing"""
+    # Generate a unique name for this test run to avoid conflicts in parallel tests
+    unique_id = uuid.uuid4().hex[:8]
+    title = f"API Test Topic {unique_id}"
+    description = f"Created through API for test {unique_id}"
+
+    # Create a new TestClient to avoid header conflicts
+    auth_client = TestClient(app)
+    # Authorize the client
+    auth_client = get_authorized_client(auth_client, admin_superuser)
+
+    # Create a topic through the API
+    response = auth_client.post(
+        "/topics",
+        json={"title": title, "description": description},
+    )
+    assert response.status_code in [200, 201], (
+        f"Failed to create topic: {response.text}"
+    )
+
+    # Return the created topic
+    created_topic = response.json()
+
+    yield created_topic

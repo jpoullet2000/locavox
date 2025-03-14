@@ -17,7 +17,7 @@ class TopicBase(BaseModel):
     image_url: Optional[str] = Field(default=None, alias="imageUrl")
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class TopicCreate(TopicBase):
@@ -43,7 +43,7 @@ class TopicInDB(TopicBase):
     updated_at: Optional[datetime.datetime] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class TopicResponse(TopicBase):

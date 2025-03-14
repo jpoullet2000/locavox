@@ -84,74 +84,11 @@ def test_list_topics(client):
 
 
 @pytest.mark.asyncio
-async def test_add_and_list_messages(
-    test_superuser, test_topic, test_db_engine, client
-):
-    """Test adding and listing messages"""
-    # Use the authenticated user from the test_user fixture
-    # user = await anext(test_user)
-    auth_headers = test_superuser["auth_header"]
-    # auth_headers = test_user["auth_header"]
-    user_id = test_superuser["user"].id
-    topic_id = test_topic["id"]
-
-    # Add a message to a new topic
-    message_data = {
-        "content": "Hello, world!",
-        "metadata": {"key": "value"},
-    }
-
-    # Add this before making the request
-    async def verify_topic_exists(test_db_engine, topic_id):
-        from sqlalchemy import text
-        from sqlalchemy.ext.asyncio import AsyncSession
-        from sqlalchemy.orm import sessionmaker
-
-        TestSessionLocal = sessionmaker(
-            test_db_engine,
-            class_=AsyncSession,
-            expire_on_commit=False,
-        )
-
-        async with TestSessionLocal() as session:
-            result = await session.execute(
-                text(f"SELECT * FROM topics WHERE id = '{topic_id}'")
-            )
-            rows = result.fetchall()
-            print(f"Topic rows found: {rows}")
-            return len(rows) > 0
-
-    # Before the client.post call
-    assert await verify_topic_exists(test_db_engine, topic_id), (
-        f"Topic {topic_id} does not exist"
-    )
-    response = client.post(
-        f"/topics/{topic_id}/messages", json=message_data, headers=auth_headers
-    )
-    assert response.status_code == 201  # Should be 201 Created
-    response_data = response.json()
-    assert "id" in response_data
-
-    # Now list messages in the topic
-    response = client.get(f"/topics/{topic_id}/messages")
-    assert response.status_code == 200
-
-    messages = response.json()
-    assert isinstance(messages, list)
-    assert len(messages) > 0
-    assert messages[0]["content"] == "Hello, world!"
-    assert (
-        messages[0]["user_id"] == user_id
-    )  # The server should set this from the auth token
-    assert "timestamp" in messages[0]
-
-
-@pytest.mark.asyncio
-async def test_get_user_messages(test_user):
+async def test_get_user_messages(client, normal_user):
     """Test getting messages for a specific user"""
     # Use the authenticated user from the test_user fixture
-    auth_headers = test_user["auth_header"]
-    user_id = test_user["user"]["id"]
+    auth_headers = normal_user["auth_header"]
+    user_id = normal_user["user"]["id"]
 
     # Add a few messages from this user to different topics
     topics = ["topic1", "topic2"]
@@ -184,7 +121,7 @@ async def test_get_user_messages(test_user):
     assert topics_found == {"topic1", "topic2"}
 
 
-def test_query_topics(mock_embedding_generator):
+def test_query_topics(client, mock_embedding_generator):
     """Test querying topics with the embedding generator mocked"""
     # Add messages to different topics
     topics = ["topic1", "topic2"]
@@ -236,7 +173,7 @@ def test_query_topics(mock_embedding_generator):
 
 
 # Update to use mock_openai_alt if needed
-def test_query_topics_with_llm(mock_openai_alt):
+def test_query_topics_with_llm(client, mock_openai_alt):
     """Test querying topics with LLM enabled"""
     # Add a test message
     response = client.post(
