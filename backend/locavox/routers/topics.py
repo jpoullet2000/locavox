@@ -7,6 +7,7 @@ from ..services.topics import (
     update_topic,
     delete_topic,
     get_topic_by_id,
+    get_message_by_id,  # Import the new function
 )
 
 # Import the function from topic_registry directly
@@ -14,6 +15,9 @@ from ..topic_registry import get_topic_by_id as registry_get_topic_by_id
 from ..services.auth_service import get_current_user
 from ..models.sql.user import User
 from ..models.schemas.topic import TopicCreate, TopicUpdate
+
+# Import MessageResponse from the schemas module
+from ..models.schemas.message import MessageResponse
 from ..models.schemas import Message, TopicBase
 from ..services import message_service, auth_service
 from ..logger import setup_logger
@@ -378,3 +382,81 @@ async def delete_message(
 
     # Return 204 No Content status code (handled by FastAPI)
     return None
+
+
+@router.get(
+    "/{topic_id}/messages/{message_id}",
+    response_model=MessageResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_message(
+    topic_id: str,
+    message_id: str,
+    current_user: Optional[User] = Depends(auth_service.get_current_user_optional),
+):
+    """
+    Get a specific message from a topic by its ID.
+
+    If the topic or message doesn't exist, a 404 error is returned.
+    This endpoint doesn't require authentication.
+    """
+    logger.info(f"Getting message {message_id} from topic {topic_id}")
+
+    # First check if topic exists in database
+    db_topic = await get_topic_by_id(topic_id)
+    if not db_topic:
+        logger.warning(f"Topic with ID {topic_id} not found in database")
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    # Ensure the topic is in the registry
+    registry_topic = registry_get_topic_by_id(topic_id)
+    if not registry_topic:
+        logger.warning(f"Topic {topic_id} not in registry, attempting to sync")
+        sync_result = await TopicRegistrySyncService.sync_topic_to_registry(db_topic)
+        if sync_result:
+            registry_topic = registry_get_topic_by_id(topic_id)
+        else:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to sync topic {topic_id} to registry"
+            )
+
+    # Use the service function to get the message
+    message = await get_message_by_id(topic_id, message_id)
+
+    # If we couldn't get the message by ID, try an alternative approach
+    if message is None:
+        logger.warning(
+            f"Message {message_id} not found using get_message_by_id, trying fallback"
+        )
+        try:
+            # Try to get all messages and find the one we want - use a specific limit
+            all_messages = await registry_topic.get_messages(skip=0, limit=100)
+            for msg in all_messages:
+                if msg.get("id") == message_id:
+                    logger.info(f"Found message {message_id} using fallback method")
+                    message = msg
+                    break
+        except Exception as e:
+            logger.error(f"Error in fallback message retrieval: {str(e)}")
+            # Try with a different limit if needed
+            try:
+                all_messages = await registry_topic.get_messages(skip=0, limit=50)
+                for msg in all_messages:
+                    if msg.get("id") == message_id:
+                        message = msg
+                        break
+            except:
+                pass  # Silently ignore the second attempt if it fails too
+
+    if message is None:
+        # If topic doesn't exist or doesn't support getting messages
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Message {message_id} not found in topic {topic_id}",
+        )
+
+    # Transform user_id to userId if needed for the response model
+    if isinstance(message, dict) and "user_id" in message and "userId" not in message:
+        message["userId"] = message["user_id"]
+
+    return message

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
+from datetime import datetime
 from ..models.sql.user import User as UserModel  # Import SQLAlchemy model
 from ..models.schemas.user import UserCreate, UserResponse  # Import Pydantic schemas
 from ..services.auth_service import get_current_user_optional, get_current_user
@@ -41,10 +41,10 @@ async def get_users(
         raise HTTPException(status_code=403, detail="Only admins can see users")
 
     try:
-        # Query to get users with pagination
+        # Query to get users with pagination - FIX: Changed 'is True' to '== True'
         stmt = (
             select(UserModel)
-            .where(UserModel.is_active is True)
+            .where(UserModel.is_active == True)  # noqa
             .order_by(UserModel.created_at.desc())
             .offset(skip)
             .limit(limit)
@@ -68,20 +68,30 @@ async def get_users(
 async def get_user(
     user_id: str,
     db: AsyncSession = Depends(get_db_session),
-    current_user: Optional[UserModel] = Depends(get_current_user_optional),
+    current_user: UserModel = Depends(get_current_user),  # Require authentication
 ):
     """
     Get a specific user by ID.
 
-    If the user is looking at their own profile, no authentication is required.
-    Otherwise, authentication is needed.
+    This endpoint requires authentication.
+    Users can only view their own profile unless they are admins.
     """
     logger.info(f"Getting user with id {user_id}")
 
     try:
-        # Get user from database
+        # Check if the user is requesting their own profile or is an admin
+        if user_id != current_user.id and not current_user.is_superuser:
+            logger.warning(
+                f"User {current_user.id} tried to access profile of user {user_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view your own profile unless you are an admin",
+            )
+
+        # Get user from database - FIX: Changed 'is True' to '== True'
         stmt = select(UserModel).where(
-            (UserModel.id == user_id) & (UserModel.is_active == True)
+            (UserModel.id == user_id) & (UserModel.is_active == True)  # noqa
         )
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
@@ -90,13 +100,6 @@ async def get_user(
             logger.warning(f"User with id {user_id} not found or not active")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            )
-
-        # Check if it's the same user or if the current user is authenticated
-        if not current_user and user_id != getattr(current_user, "id", None):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to view other users' profiles",
             )
 
         return user
@@ -117,6 +120,7 @@ async def get_user_messages(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     current_user: Optional[UserModel] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """
     Get messages posted by a specific user across all topics.
@@ -134,20 +138,63 @@ async def get_user_messages(
 
     for topic_name, topic in all_topics.items():
         try:
-            # Get messages by this user in this topic
-            user_messages = await topic.get_messages_by_user(user_id)
-            logger.debug(
-                f"Found {len(user_messages)} messages from user {user_id} in topic {topic_name}"
-            )
+            # Check if topic supports get_messages_by_user method
+            if hasattr(topic, "get_messages_by_user"):
+                logger.debug(f"Topic {topic_name} has get_messages_by_user method")
+                # Get messages by this user in this topic
+                user_messages = await topic.get_messages_by_user(user_id)
+                logger.debug(
+                    f"Found {len(user_messages)} messages from user {user_id} in topic {topic_name}"
+                )
+            else:
+                # Fallback: get all messages and filter by user_id
+                logger.debug(
+                    f"Topic {topic_name} doesn't have get_messages_by_user method, using fallback"
+                )
+
+                # Check if the topic has a get_messages method
+                if hasattr(topic, "get_messages"):
+                    # Get all messages and filter - use a large limit instead of None
+                    try:
+                        # Use a large but finite limit (1000) instead of None
+                        all_topic_messages = await topic.get_messages(
+                            skip=0, limit=1000
+                        )
+                        # Filter messages by user_id
+                        user_messages = [
+                            msg
+                            for msg in all_topic_messages
+                            if msg.get("user_id") == user_id
+                        ]
+                        logger.debug(
+                            f"Found {len(user_messages)} messages from user {user_id} in topic {topic_name} using fallback"
+                        )
+                    except TypeError as e:
+                        logger.error(f"TypeError using get_messages: {e}")
+                        # Try with a different limit if None causes an issue
+                        all_topic_messages = await topic.get_messages(skip=0, limit=100)
+                        user_messages = [
+                            msg
+                            for msg in all_topic_messages
+                            if msg.get("user_id") == user_id
+                        ]
+                else:
+                    logger.warning(
+                        f"Topic {topic_name} doesn't support either get_messages_by_user or get_messages"
+                    )
+                    continue
 
             # Build response with message and topic info
             for message in user_messages:
                 all_messages.append(
                     {
-                        "message": message.model_dump(),
+                        "message": message.model_dump()
+                        if hasattr(message, "model_dump")
+                        else message,
                         "topic": {
                             "name": topic_name,
                             "description": getattr(topic, "description", topic_name),
+                            "id": getattr(topic, "id", topic_name),  # Include topic ID
                         },
                     }
                 )
@@ -156,15 +203,36 @@ async def get_user_messages(
             logger.error(
                 f"Error getting messages for user {user_id} in topic {topic_name}: {e}"
             )
+            # Print full exception with traceback for debugging
+            import traceback
+
+            logger.error(f"Exception traceback: {traceback.format_exc()}")
+
+    # Make sure we can properly sort the messages
+    for msg in all_messages:
+        if isinstance(msg["message"], dict) and "timestamp" not in msg["message"]:
+            # If timestamp is missing, add a default one (current time) to avoid sorting errors
+            msg["message"]["timestamp"] = datetime.now().isoformat()
 
     # Sort all messages by timestamp (newest first)
-    all_messages.sort(key=lambda x: x["message"]["timestamp"], reverse=True)
+    try:
+        all_messages.sort(key=lambda x: x["message"]["timestamp"], reverse=True)
+    except (KeyError, TypeError) as e:
+        logger.error(f"Error sorting messages: {e}")
+        # If sorting fails, at least return the unsorted messages
 
     # Apply pagination
     paginated_messages = all_messages[skip : skip + limit]
     total_count = len(all_messages)
 
     logger.info(f"Found {total_count} total messages for user {user_id}")
+
+    # Log message IDs for debugging
+    if total_count > 0:
+        message_ids = [msg["message"].get("id") for msg in all_messages]
+        logger.info(f"Message IDs found: {message_ids}")
+    else:
+        logger.warning(f"No messages found for user {user_id}")
 
     # Return paginated results
     return {

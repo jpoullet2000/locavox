@@ -151,6 +151,10 @@ async def setup_test_environment(test_db_engine):
 @pytest.fixture
 async def normal_user(test_db_engine):
     """Create a test user with authentication token"""
+    # Generate a unique ID and unique username/email for each test run
+    unique_suffix = str(uuid.uuid4()).split("-")[0]
+    username = f"testuser_{unique_suffix}"
+    email = f"test_{unique_suffix}@example.com"
     user_id = str(uuid.uuid4())
 
     # Create session factory from the shared engine
@@ -169,17 +173,23 @@ async def normal_user(test_db_engine):
         existing_user = result.scalar_one_or_none()
 
         if existing_user is None:
-            # Create test user
+            # Create test user with unique username and email
             user = User(
                 id=user_id,
-                email="test@example.com",
-                username="testuser",
+                email=email,
+                username=username,
                 hashed_password=get_password_hash("password123"),
                 is_active=True,
             )
             session.add(user)
-            await session.commit()
-            await session.refresh(user)
+            try:
+                await session.commit()
+                await session.refresh(user)
+            except Exception as e:
+                # If there's an error (like a unique constraint), log and rollback
+                print(f"Error creating test user: {e}")
+                await session.rollback()
+                raise
         else:
             user = existing_user
 
