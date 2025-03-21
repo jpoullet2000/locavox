@@ -33,6 +33,55 @@ uvicorn locavox.main:app --reload --port 8000
 
 This will start the server at http://localhost:8000
 
+## Troubleshooting
+
+### SQLite Database Locking Issues
+
+SQLite may experience database locking errors ("database is locked") during concurrent access or if a process crashes without properly closing connections. Common symptoms include:
+
+- Error messages containing `[SQLITE_BUSY] The database file is locked`
+- Authentication issues even with correct credentials
+- API requests failing with 500 errors
+
+#### Using the Database Lock Fix Tool
+
+The project includes a utility to diagnose and fix database locking issues:
+
+```bash
+# Install required dependency
+pip install psutil
+
+# Check if the database is locked and identify locking processes
+python -m locavox.tools.run_fix_db --check --identify
+
+# Attempt to release locks (safe operation)
+python -m locavox.tools.run_fix_db --release
+
+# For more aggressive fixing (use with caution)
+python -m locavox.tools.run_fix_db --release --kill --force --repair
+```
+
+#### Quick Fixes
+
+If you're experiencing database lock issues:
+
+1. **Restart your application**: Stop all running instances and restart
+2. **Check for zombie processes**: Look for hanging Python processes
+3. **Delete journal files**: As a last resort, delete `-journal`, `-wal`, and `-shm` files (may cause data loss)
+4. **Verify authentication**: Run the diagnostic tool to check credentials:
+   ```bash
+   python -m tests.test_auth_login_issue <username> <password>
+   ```
+
+#### Prevention
+
+To prevent database locking issues:
+
+- Avoid long-running transactions
+- Ensure proper connection closing with context managers
+- Consider using a more robust database like PostgreSQL for production environments
+- Use connection pooling with appropriate timeouts
+
 ## Real Backend
 
 The real backend API runs on port 8000 by default. The main implementation is in the `locavox` Python package.

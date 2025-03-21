@@ -1,5 +1,5 @@
 from typing import Dict, Optional, Any
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from datetime import datetime
 from .user_address import Coordinates
 
@@ -9,10 +9,12 @@ class Message(BaseModel):
 
     id: str
     content: str
-    userId: str
+    user_id: str = Field(default=None, alias="userId")
+    address_id: Optional[str] = Field(
+        default=None, alias="addressId"
+    )  # Reference to a user address
     timestamp: datetime
     coordinates: Optional[Coordinates] = None
-    addressId: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -20,10 +22,37 @@ class MessageCreate(BaseModel):
     """Model for creating a new message"""
 
     content: str
-    userId: str
-    addressId: Optional[str] = None  # Reference to a user address
+    user_id: Optional[str] = Field(default=None, alias="userId")
+    address_id: Optional[str] = Field(
+        default=None, alias="addressId"
+    )  # Reference to a user address
     coordinates: Optional[Coordinates] = None  # Allow direct coordinates input
     metadata: Optional[Dict[str, Any]] = None
+
+    class Config:
+        # Allow population by name or alias
+        populate_by_name = True
+        # Make aliases work when deserializing data from JSON
+        populate_by_alias = True
+        # Enable aliased field names on models with alias definitions
+        allow_population_by_field_name = True
+
+        json_schema_extra = {
+            "examples": [
+                {
+                    "content": "This is a message",
+                    "user_id": "user123",  # Snake case version
+                    "address_id": "addr456",
+                    "metadata": {"key": "value"},
+                },
+                {
+                    "content": "This is a message",
+                    "userId": "user123",  # Camel case version
+                    "addressId": "addr456",
+                    "metadata": {"key": "value"},
+                },
+            ]
+        }
 
 
 class MessageResponse(BaseModel):

@@ -220,3 +220,39 @@ Options:
 - `--limit` or `-l`: Maximum number of rows to show when displaying sample data (default: 5)
 
 This tool helps verify that all expected tables have been created correctly in the database.
+
+## Troubleshooting
+
+### Common Errors
+
+#### SQLAlchemy Session Errors
+
+If you encounter an error similar to:
+```
+ERROR - Error updating topic <UUID>: Object '<Topic at 0x...>' is already attached to session '<number>' (this is '<number>')
+```
+
+This indicates a SQLAlchemy session management issue where an object is being used across multiple database sessions. To resolve:
+
+1. Ensure you're not mixing session objects in your service code
+2. Check for proper session closing with `try/finally` blocks
+3. Consider using the session management pattern:
+   ```python
+   from contextlib import contextmanager
+   
+   @contextmanager
+   def get_session():
+       session = Session()
+       try:
+           yield session
+           session.commit()
+       except Exception:
+           session.rollback()
+           raise
+       finally:
+           session.close()
+   ```
+
+4. For services, make sure objects are properly detached or refreshed when working across multiple functions
+
+For more details, check the [SQLAlchemy documentation on session basics](https://docs.sqlalchemy.org/en/14/orm/session_basics.html).

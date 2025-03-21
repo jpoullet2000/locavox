@@ -42,14 +42,15 @@ DATABASE_RECREATE_TABLES = (
 
 # Set database URL based on available drivers
 db_url_env = os.getenv("DATABASE_URL")
+SQLITE_FILE = "locavox.db"
 if db_url_env:
     DATABASE_URL = db_url_env
 elif has_asyncpg:
     DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/locavox"
 elif has_aiosqlite:
-    DATABASE_URL = "sqlite+aiosqlite:///./locavox.db"
+    DATABASE_URL = f"sqlite+aiosqlite:///./{SQLITE_FILE}"
 else:
-    DATABASE_URL = "sqlite+aiosqlite:///./locavox.db"
+    DATABASE_URL = f"sqlite+aiosqlite:///./{SQLITE_FILE}"
     logger.warning(
         "No async database drivers found. Please install asyncpg or aiosqlite."
     )

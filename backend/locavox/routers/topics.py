@@ -17,7 +17,7 @@ from ..models.sql.user import User
 from ..models.schemas.topic import TopicCreate, TopicUpdate
 
 # Import MessageResponse from the schemas module
-from ..models.schemas.message import MessageResponse
+from ..models.schemas.message import MessageResponse, MessageCreate
 from ..models.schemas import Message, TopicBase
 from ..services import message_service, auth_service
 from ..logger import setup_logger
@@ -204,7 +204,17 @@ async def delete_existing_topic(
 
 @router.get("/registry", response_model=Dict[str, str])
 async def list_topic_registry():
-    """List all available topics in the topic registry"""
+    """
+    List all available topic handlers in the in-memory topic registry.
+
+    This endpoint is different from GET /topics:
+    - GET /topics returns topic records from the database with metadata
+    - GET /topics/registry returns the mapping of topic IDs to their handler classes
+      that can process messages and are loaded in memory
+
+    This endpoint is primarily used for debugging and development to verify
+    which topic handlers are currently registered in the application.
+    """
     if topic_registry is None:
         return {}
     return {name: topic.__class__.__name__ for name, topic in topic_registry.items()}
@@ -270,7 +280,7 @@ async def get_topic_messages(
 
 @router.post("/{topic_id}/messages", status_code=status.HTTP_201_CREATED)
 async def create_topic_message(
-    message: dict,
+    message: MessageCreate,
     topic_id: str = Path(..., description="The ID of the topic"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
@@ -322,11 +332,13 @@ async def create_topic_message(
             )
 
     # Add the user ID to the message
-    message["user_id"] = current_user.id
+    if not message.user_id:
+        message.user_id = current_user.id
 
     try:
+        message_dict = message.model_dump()
         # Use the topic-specific creation logic
-        result = await registry_topic.create_message(message, current_user)
+        result = await registry_topic.create_message(message_dict, current_user)
         return result
     except AttributeError as e:
         logger.error(f"Error creating message in topic {topic_id}: {str(e)}")
