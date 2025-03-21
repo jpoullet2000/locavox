@@ -30,18 +30,18 @@ async def add_missing_columns():
 
                 logger.info(f"Existing columns: {existing_columns}")
 
-                # Add name column if it doesn't exist
-                if "name" not in existing_columns:
-                    logger.info("Adding 'name' column to users table")
+                # Add first_name column if it doesn't exist
+                if "first_name" not in existing_columns:
+                    logger.info("Adding 'first_name' column to users table")
                     await conn.execute(
-                        text("ALTER TABLE users ADD COLUMN name VARCHAR")
+                        text("ALTER TABLE users ADD COLUMN first_name VARCHAR(100)")
                     )
 
-                # Add full_name column if it doesn't exist
-                if "full_name" not in existing_columns:
-                    logger.info("Adding 'full_name' column to users table")
+                # Add last_name column if it doesn't exist
+                if "last_name" not in existing_columns:
+                    logger.info("Adding 'last_name' column to users table")
                     await conn.execute(
-                        text("ALTER TABLE users ADD COLUMN full_name VARCHAR")
+                        text("ALTER TABLE users ADD COLUMN last_name VARCHAR(100)")
                     )
 
                 # Add bio column if it doesn't exist
@@ -60,23 +60,23 @@ async def add_missing_columns():
 
             elif engine.dialect.name == "postgresql":
                 # PostgreSQL version - can use a more efficient approach
-                # Check and add name column
+                # Check and add columns
                 await conn.execute(
                     text("""
                     DO $$
                     BEGIN
                         IF NOT EXISTS (
                             SELECT FROM information_schema.columns 
-                            WHERE table_name = 'users' AND column_name = 'name'
+                            WHERE table_name = 'users' AND column_name = 'first_name'
                         ) THEN
-                            ALTER TABLE users ADD COLUMN name VARCHAR;
+                            ALTER TABLE users ADD COLUMN first_name VARCHAR(100);
                         END IF;
                         
                         IF NOT EXISTS (
                             SELECT FROM information_schema.columns 
-                            WHERE table_name = 'users' AND column_name = 'full_name'
+                            WHERE table_name = 'users' AND column_name = 'last_name'
                         ) THEN
-                            ALTER TABLE users ADD COLUMN full_name VARCHAR;
+                            ALTER TABLE users ADD COLUMN last_name VARCHAR(100);
                         END IF;
                         
                         IF NOT EXISTS (

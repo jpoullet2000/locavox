@@ -1,12 +1,9 @@
 import pytest
-import sys
-import os
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
-
-# Add the parent directory to the path so we can import from locavox
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import sqlalchemy
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Import the auth service module
 from locavox.services.auth_service import (
@@ -14,13 +11,12 @@ from locavox.services.auth_service import (
     get_current_user_optional,
     authenticate_user,
     create_access_token,
-    register_user,
-    get_user_by_id,
 )
-from locavox.models.schemas.user import User, UserCreate
+from locavox.models.sql.user import User
+from locavox.models.schemas.user import TokenData
 from locavox import config
 
-# Import JWT libraries - these are used in tests even if not in the actual service
+# Import JWT libraries
 try:
     from jose import jwt
 except ImportError:
@@ -41,7 +37,9 @@ def mock_user():
         id="user-testuser",
         username="testuser",
         email="test@example.com",
-        full_name="Test User",
+        first_name="Test",
+        last_name="User",
+        hashed_password="hashed_password_here",
         is_active=True,
     )
 
@@ -51,9 +49,6 @@ def test_token(mock_user):
     """Create a test token for the mock user"""
     data = {
         "sub": mock_user.id,
-        "username": mock_user.username,
-        "email": mock_user.email,
-        "is_superuser": False,
     }
     token = create_access_token(data)
     return token
@@ -64,12 +59,16 @@ def admin_token():
     """Create a test token with admin privileges"""
     data = {
         "sub": "user-admin",
-        "username": "admin",
-        "email": "admin@example.com",
-        "is_superuser": True,
     }
     token = create_access_token(data)
     return token
+
+
+@pytest.fixture
+def mock_db_session():
+    """Create a mock database session"""
+    session = AsyncMock(spec=AsyncSession)
+    return session
 
 
 # Mark all tests in this class as async
@@ -79,11 +78,10 @@ pytestmark = pytest.mark.asyncio
 class TestAuthService:
     """Test cases for auth_service module"""
 
-    @pytest.mark.asyncio
     async def test_create_access_token(self):
         """Test that create_access_token generates a valid JWT token"""
         # Arrange
-        test_data = {"sub": "test-user", "username": "testuser"}
+        test_data = {"sub": "test-user"}
 
         # Act
         token = create_access_token(test_data)
@@ -93,9 +91,10 @@ class TestAuthService:
         assert isinstance(token, str)
 
         # Verify token content
-        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        payload = jwt.decode(
+            token, config.settings.SECRET_KEY, algorithms=[config.settings.ALGORITHM]
+        )
         assert payload["sub"] == test_data["sub"]
-        assert payload["username"] == test_data["username"]
         assert "exp" in payload
 
     async def test_create_access_token_with_expiry(self):
@@ -105,20 +104,22 @@ class TestAuthService:
         expires_delta = timedelta(minutes=15)
 
         # Record current time before token creation - use timezone-aware datetime
-        _ = datetime.now(timezone.utc)
+        before_creation = datetime.now(timezone.utc)
 
         # Act
         token = create_access_token(test_data, expires_delta)
 
         # Record time after token creation
-        _ = datetime.now(timezone.utc)
+        after_creation = datetime.now(timezone.utc)
 
         # Assert
         assert token is not None
         assert isinstance(token, str)
 
         # Decode and verify token
-        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
+        payload = jwt.decode(
+            token, config.settings.SECRET_KEY, algorithms=[config.settings.ALGORITHM]
+        )
         assert payload["sub"] == test_data["sub"]
 
         # Get the expiration timestamp from token
@@ -136,25 +137,71 @@ class TestAuthService:
         # Additional check - make sure exp is set properly in the future
         assert exp_timestamp > now, "Token should expire in the future"
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_valid_token(
-        self, mock_get_user, test_token, mock_user
-    ):
-        """Test getting current user with a valid token"""
-        # Arrange - properly mock the async function
-        # Set the return value directly without wrapping in AsyncMock
-        mock_get_user.return_value = mock_user
+    async def test_authenticate_user_success(self, mock_db_session, mock_user):
+        """Test successful authentication"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db_session.execute.return_value = mock_result
+
+        with patch("locavox.services.auth_service.verify_password", return_value=True):
+            # Act
+            user = await authenticate_user(mock_db_session, "testuser", "password123")
+
+            # Assert
+            assert user is not None
+            assert user.username == mock_user.username
+            assert user.id == mock_user.id
+            mock_db_session.execute.assert_called_once()
+
+    async def test_authenticate_user_wrong_password(self, mock_db_session, mock_user):
+        """Test authentication with wrong password"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db_session.execute.return_value = mock_result
+
+        with patch("locavox.services.auth_service.verify_password", return_value=False):
+            # Act
+            user = await authenticate_user(mock_db_session, "testuser", "wrongpassword")
+
+            # Assert
+            assert user is None
+            mock_db_session.execute.assert_called_once()
+
+    async def test_authenticate_user_nonexistent(self, mock_db_session):
+        """Test authentication with nonexistent user"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute.return_value = mock_result
 
         # Act
-        user = await get_current_user(test_token)
+        user = await authenticate_user(mock_db_session, "nonexistentuser", "password")
+
+        # Assert
+        assert user is None
+        mock_db_session.execute.assert_called_once()
+
+    async def test_get_current_user_valid_token(
+        self, mock_db_session, test_token, mock_user
+    ):
+        """Test getting current user with a valid token"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db_session.execute.return_value = mock_result
+
+        # Act
+        user = await get_current_user(test_token, mock_db_session)
 
         # Assert
         assert user is not None
         assert user.id == mock_user.id
         assert user.username == mock_user.username
+        mock_db_session.execute.assert_called_once()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_invalid_token(self, mock_get_user):
+    async def test_get_current_user_invalid_token(self, mock_db_session):
         """Test that invalid tokens are rejected"""
         # Arrange
         # Create an invalid token
@@ -162,14 +209,13 @@ class TestAuthService:
 
         # Act & Assert
         with pytest.raises(HTTPException) as excinfo:
-            await get_current_user(invalid_token)
+            await get_current_user(invalid_token, mock_db_session)
 
         assert excinfo.value.status_code == 401
         assert "Could not validate credentials" in excinfo.value.detail
-        mock_get_user.assert_not_called()
+        mock_db_session.execute.assert_not_called()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_expired_token(self, mock_get_user):
+    async def test_get_current_user_expired_token(self, mock_db_session):
         """Test that expired tokens are rejected"""
         # Arrange
         # Create an expired token
@@ -177,149 +223,70 @@ class TestAuthService:
             "sub": "test-user",
             "exp": (datetime.now(timezone.utc) - timedelta(days=1)).timestamp(),
         }
-        expired_token = jwt.encode(data, config.SECRET_KEY, algorithm=config.ALGORITHM)
+        expired_token = jwt.encode(
+            data, config.settings.SECRET_KEY, algorithm=config.settings.ALGORITHM
+        )
 
         # Act & Assert
         with pytest.raises(HTTPException) as excinfo:
-            await get_current_user(expired_token)
+            await get_current_user(expired_token, mock_db_session)
 
         assert excinfo.value.status_code == 401
         assert "Could not validate credentials" in excinfo.value.detail
-        mock_get_user.assert_not_called()
+        mock_db_session.execute.assert_not_called()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_no_token(self, mock_get_user):
-        """Test that missing token causes 401 error"""
-        # Act & Assert
-        with pytest.raises(HTTPException) as excinfo:
-            await get_current_user(None)
-
-        assert excinfo.value.status_code == 401
-        assert "Could not validate credentials" in excinfo.value.detail
-        mock_get_user.assert_not_called()
-
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_missing_user(self, mock_get_user, test_token):
+    async def test_get_current_user_missing_user(self, mock_db_session, test_token):
         """Test behavior when user ID in token doesn't exist"""
-        # Arrange - fix how None is returned from the async function
-        mock_get_user.return_value = None
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db_session.execute.return_value = mock_result
 
         # Act & Assert
         with pytest.raises(HTTPException) as excinfo:
-            await get_current_user(test_token)
+            await get_current_user(test_token, mock_db_session)
 
         assert excinfo.value.status_code == 401
         assert "Could not validate credentials" in excinfo.value.detail
-        mock_get_user.assert_called_once()
+        mock_db_session.execute.assert_called_once()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_optional_no_token(self, mock_get_user):
+    async def test_get_current_user_optional_no_token(self, mock_db_session):
         """Test optional user returns None when no token provided"""
         # Act
-        result = await get_current_user_optional(None)
+        result = await get_current_user_optional(None, mock_db_session)
 
         # Assert
         assert result is None
-        mock_get_user.assert_not_called()
+        mock_db_session.execute.assert_not_called()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
     async def test_get_current_user_optional_with_token(
-        self, mock_get_user, test_token, mock_user
+        self, mock_db_session, test_token, mock_user
     ):
         """Test optional user returns user when valid token provided"""
-        # Arrange - fix the mock return value
-        mock_get_user.return_value = mock_user
+        # Arrange
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_user
+        mock_db_session.execute.return_value = mock_result
 
         # Act
-        user = await get_current_user_optional(test_token)
+        user = await get_current_user_optional(test_token, mock_db_session)
 
         # Assert
         assert user is not None
         assert user.id == mock_user.id
+        mock_db_session.execute.assert_called_once()
 
-    @patch("locavox.services.auth_service.get_user_by_id")
-    async def test_get_current_user_optional_invalid_token(self, mock_get_user):
+    async def test_get_current_user_optional_invalid_token(self, mock_db_session):
         """Test optional user returns None with invalid token"""
         # Arrange
         invalid_token = "invalid.token.here"
 
         # Act
-        result = await get_current_user_optional(invalid_token)
+        result = await get_current_user_optional(invalid_token, mock_db_session)
 
         # Assert
         assert result is None
-        mock_get_user.assert_not_called()
-
-    async def test_authenticate_user_success(self):
-        """Test successful authentication"""
-        # Arrange & Act
-        username = "testuser"
-        user = await authenticate_user(username, username)  # Using simple match rule
-
-        # Assert
-        assert user is not None
-        assert user.username == username
-        assert user.id == f"user-{username}"
-
-    async def test_authenticate_user_failure(self):
-        """Test failed authentication"""
-        # Arrange & Act
-        user = await authenticate_user("testuser", "wrongpassword")
-
-        # Assert
-        assert user is None
-
-    async def test_authenticate_user_empty_credentials(self):
-        """Test authentication with empty credentials"""
-        # Arrange & Act
-        user1 = await authenticate_user("", "password")
-        user2 = await authenticate_user("username", "")
-
-        # Assert
-        assert user1 is None
-        assert user2 is None
-
-    async def test_register_user(self):
-        """Test user registration"""
-        # Arrange
-        user_data = UserCreate(
-            username="newuser",
-            email="new@example.com",
-            password="password123",
-            full_name="New User",
-        )
-
-        # Act
-        new_user = await register_user(user_data)
-
-        # Assert
-        assert new_user is not None
-        assert new_user.username == user_data.username
-        assert new_user.email == user_data.email
-        assert new_user.full_name == user_data.full_name
-        assert new_user.id == f"user-{user_data.username}"
-        assert new_user.is_active is True
-
-    async def test_get_user_by_id_existing(self):
-        """Test retrieving an existing user"""
-        # Arrange
-        test_id = "user-testuser"
-
-        # Act
-        user = await get_user_by_id(test_id)
-
-        # Assert
-        assert user is not None
-        assert user.id == test_id
-        assert user.username == "testuser"
-
-    async def test_get_user_by_id_nonexistent(self):
-        """Test retrieving a nonexistent user"""
-        # Arrange & Act
-        user = await get_user_by_id("nonexistent-id")
-
-        # Assert
-        assert user is None
+        mock_db_session.execute.assert_not_called()
 
 
 if __name__ == "__main__":

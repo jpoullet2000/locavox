@@ -54,11 +54,11 @@ async def create_user(db: AsyncSession, user_data: UserCreate) -> User:
         if hasattr(user_data, "username") and user_data.username:
             user_dict["username"] = user_data.username
 
-        if hasattr(user_data, "name") and user_data.name:
-            user_dict["name"] = user_data.name
+        if hasattr(user_data, "first_name") and user_data.first_name:
+            user_dict["first_name"] = user_data.first_name
 
-        if hasattr(user_data, "full_name") and user_data.full_name:
-            user_dict["full_name"] = user_data.full_name
+        if hasattr(user_data, "last_name") and user_data.last_name:
+            user_dict["last_name"] = user_data.last_name
 
         user = User(**user_dict)
         db.add(user)

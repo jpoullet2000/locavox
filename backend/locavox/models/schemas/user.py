@@ -38,8 +38,8 @@ class UserUpdate(BaseModel):
 
     username: Optional[str] = None
     email: Optional[EmailStr] = None
-    name: Optional[str] = None
-    full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     is_active: Optional[bool] = None
     is_superuser: Optional[bool] = None
 
